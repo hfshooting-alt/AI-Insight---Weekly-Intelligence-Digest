@@ -119,3 +119,20 @@ python daily_paper_agent.py
 - `SMTP_USER`（默认回退到 `REPORT_EMAIL_FROM` 或 `REPORT_EMAIL_TO`）
 - `SMTP_HOST`（默认 `smtp.163.com`）
 - `SMTP_PORT`（默认 `465`）
+
+
+### 检索增强（修复“24h无结果”）
+
+为避免只返回“过去24小时没有匹配论文”，Agent 现在采用：
+
+- *搜索引擎式多关键词检索*：对每个关键词分别请求多个索引源，而非单次宽泛请求。
+- *多源覆盖*：`arXiv + Crossref + OpenAlex + Semantic Scholar`。
+- *时间戳优先*：优先用 `indexed/updated/created` 的时间戳，而不是只有日期粒度的字段。
+- *自动回退窗口*：若 24h 结果为空，自动回退到 168h（7天）并在报告头部注明检索窗口。
+
+可通过环境变量调优：
+
+- `LOOKBACK_HOURS`（默认 `24`）
+- `FALLBACK_LOOKBACK_HOURS`（默认 `168`）
+- `MAX_PAPERS`（默认 `12`）
+- `OPENAI_MODEL`（默认 `gpt-4o-mini`）

@@ -136,3 +136,22 @@ python daily_paper_agent.py
 - `FALLBACK_LOOKBACK_HOURS`（默认 `168`）
 - `MAX_PAPERS`（默认 `12`）
 - `OPENAI_MODEL`（默认 `gpt-4o-mini`）
+
+
+### 日报展示优化（更美观）
+
+- 邮件改为 *HTML + 纯文本双格式*（兼容客户端），支持更清晰的标题、分节、分隔线和项目符号。
+- 每篇论文保留「序号 + 标题 + 来源 + 链接 + 精读内容」，并按你的要求去掉了论文时间字段。
+- 支持在日报顶部显示“来源命中统计 + 入选篇数”，便于快速判断覆盖质量。
+
+### 检索来源扩展（不再局限少数平台）
+
+当前检索层已覆盖：
+
+- `arXiv`
+- `Crossref`（聚合大量出版社与期刊索引）
+- `OpenAlex`
+- `Semantic Scholar`
+- `期刊 RSS`：Nature、Science、PNAS、PLOS ONE、bioRxiv、medRxiv
+
+同时仍保留多关键词 fan-out + 24h→7d 回退窗口，降低“空日报”概率。

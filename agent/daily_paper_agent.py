@@ -616,15 +616,17 @@ def build_prompt(paper: Paper, category: str, fulltext_context: str) -> str:
         f"""
         你是论文信息整理 Agent。请优先依据论文全文内容进行拆解；若全文抓取失败，再退回标题+摘要。
 
-        严格输出以下四行，不要输出其它字段：
-        一句话核心：<一句话讲清楚论文做了什么、解决什么、达到什么结果>
-        论文背景（当前技术局限和论文创新点）：<2-3句>
-        论文方法与结果：<2-3句；如无量化信息写“未披露具体幅度”>
-        论文的展望与局限：<2-3句；仅写作者提到或文本明确可见内容>
+        严格输出以下六行，不要输出其它字段：
+        一句话核心：<一句话讲清楚论文做了什么、解决什么、结果如何；尽量完整>
+        论文背景：<2-3句，说明当前做法的主要局限>
+        论文创新点：<1-2句，直接说这篇论文新增了什么>
+        论文方法拆解：<2-3句，按步骤讲方法，少术语堆砌>
+        论文结果拆解：<2-3句；若无量化信息写“未披露具体幅度”>
+        论文展望与局限：<2-3句，仅写文本明确出现的信息>
 
         要求：
         只写标题、摘要、正文明确支持的信息，不做额外推断。
-        句子简洁，硬信息优先。
+        用短句。让非专业读者也能看懂。避免术语堆砌和语病。
 
         论文分类：{category}
         标题：{paper.title}
@@ -657,9 +659,11 @@ def clean_symbols(text: str) -> str:
 def parse_structured_analysis(text: str) -> Dict[str, str]:
     keys = [
         "一句话核心",
-        "论文背景（当前技术局限和论文创新点）",
-        "论文方法与结果",
-        "论文的展望与局限",
+        "论文背景",
+        "论文创新点",
+        "论文方法拆解",
+        "论文结果拆解",
+        "论文展望与局限",
     ]
     data: Dict[str, str] = {k: "未披露" for k in keys}
     for line in clean_symbols(text).splitlines():
@@ -671,14 +675,16 @@ def parse_structured_analysis(text: str) -> Dict[str, str]:
         if k in data and v.strip():
             data[k] = v.strip()
 
-    if data["论文方法与结果"].strip() in ["未披露", "摘要未披露", "未知", "不详"]:
-        data["论文方法与结果"] = "文本未披露具体幅度。"
+    if data["论文结果拆解"].strip() in ["未披露", "摘要未披露", "未知", "不详"]:
+        data["论文结果拆解"] = "文本未披露具体幅度。"
 
     max_len = {
-        "一句话核心": 72,
-        "论文背景（当前技术局限和论文创新点）": 120,
-        "论文方法与结果": 120,
-        "论文的展望与局限": 120,
+        "一句话核心": 88,
+        "论文背景": 150,
+        "论文创新点": 100,
+        "论文方法拆解": 150,
+        "论文结果拆解": 150,
+        "论文展望与局限": 140,
     }
     for k, m in max_len.items():
         if len(data[k]) > m:
@@ -703,9 +709,11 @@ def render_paper_block(index: int, item: AnalyzedPaper, parsed: Dict[str, str]) 
         f"发布时间：{published_bj}（北京时间）",
         f"链接：{paper.url}",
         f"一句话核心：{parsed['一句话核心']}",
-        f"论文背景（当前技术局限和论文创新点）：{parsed['论文背景（当前技术局限和论文创新点）']}",
-        f"论文方法与结果：{parsed['论文方法与结果']}",
-        f"论文的展望与局限：{parsed['论文的展望与局限']}",
+        f"论文背景：{parsed['论文背景']}",
+        f"论文创新点：{parsed['论文创新点']}",
+        f"论文方法拆解：{parsed['论文方法拆解']}",
+        f"论文结果拆解：{parsed['论文结果拆解']}",
+        f"论文展望与局限：{parsed['论文展望与局限']}",
     ]
 
 
@@ -801,7 +809,7 @@ def to_html(report_text: str) -> str:
             html_lines.append(
                 f"<p style='margin:10px 0 14px;padding:10px 12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;font-size:19px;font-weight:700;line-height:1.75'>{html.escape(striped)}</p>"
             )
-        elif striped.startswith("论文背景（当前技术局限和论文创新点）：") or striped.startswith("论文方法与结果：") or striped.startswith("论文的展望与局限："):
+        elif striped.startswith("论文背景：") or striped.startswith("论文创新点：") or striped.startswith("论文方法拆解：") or striped.startswith("论文结果拆解：") or striped.startswith("论文展望与局限："):
             title, content = striped.split("：", 1)
             html_lines.append(
                 f"<p style='margin:14px 0 6px;font-size:20px;font-weight:800;line-height:1.35;color:#0f172a'>{html.escape(title)}</p>"

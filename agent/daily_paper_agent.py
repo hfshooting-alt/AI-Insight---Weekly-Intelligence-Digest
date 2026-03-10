@@ -58,16 +58,19 @@ WORLD_STRICT_KEYWORDS = [
 
 INFRA_STRICT_KEYWORDS = [
     "data infrastructure", "data infra", "data pipeline", "data ingestion",
-    "data processing", "stream processing", "batch processing", "etl",
-    "feature store", "data lake", "data lakehouse", "data quality",
+    "stream processing", "batch processing", "etl", "feature store",
+    "data lake", "data lakehouse", "data quality", "data governance",
     "data orchestration", "knowledge graph infrastructure", "synthetic data generation",
-    "数据基础设施", "数据管道", "数据采集", "数据处理", "流处理", "湖仓",
+    "vector database", "data observability", "schema evolution",
+    "数据基础设施", "数据管道", "数据采集", "流处理", "湖仓", "特征库", "数据治理",
 ]
 
 IRRELEVANT_HINT_KEYWORDS = [
     "t cell", "tumor", "cancer", "clinical", "patient", "medical", "medicine",
-    "drug", "antigen", "genome", "protein", "cell", "spacecraft", "satellite",
-    "astronomy", "orbit", "航天", "医学", "肿瘤", "临床", "蛋白", "细胞",
+    "drug", "antigen", "genome", "protein", "cell", "herb", "medicinal plant",
+    "botany", "agriculture", "crop", "ethnobotany", "pharmacology",
+    "spacecraft", "satellite", "astronomy", "orbit",
+    "航天", "医学", "肿瘤", "临床", "蛋白", "细胞", "草药", "药用植物", "农业", "作物",
 ]
 
 INVESTMENT_TECH_KEYWORDS = [
@@ -82,6 +85,15 @@ EXCLUDED_NON_TECH_KEYWORDS = [
     "art", "artist", "mural", "museum", "heritage", "aesthetics", "culture", "curation",
     "filipino", "humanities", "literature", "music", "dance", "painting", "exhibition",
     "艺术", "壁画", "博物馆", "文化", "文学", "音乐", "舞蹈", "展览", "美学",
+]
+
+CORE_WORLD_ANCHORS = [
+    "world model", "world engine", "world simulator", "interactive world", "digital twin", "世界模型", "世界引擎",
+]
+
+CORE_INFRA_ANCHORS = [
+    "data infrastructure", "data infra", "data pipeline", "data ingestion", "data lakehouse", "feature store",
+    "stream processing", "batch processing", "etl", "data orchestration", "数据基础设施", "数据管道", "湖仓",
 ]
 
 RSS_SOURCES = {
@@ -206,19 +218,20 @@ def topical_score(title: str, abstract: str) -> int:
 
 def is_domain_relevant(title: str, abstract: str) -> bool:
     hay = normalize(f"{title} {abstract}")
+    world_anchor_hit = sum(1 for kw in CORE_WORLD_ANCHORS if normalize(kw) in hay)
+    infra_anchor_hit = sum(1 for kw in CORE_INFRA_ANCHORS if normalize(kw) in hay)
     world_hit = sum(1 for kw in WORLD_STRICT_KEYWORDS if normalize(kw) in hay)
     infra_hit = sum(1 for kw in INFRA_STRICT_KEYWORDS if normalize(kw) in hay)
     tech_hit = sum(1 for kw in INVESTMENT_TECH_KEYWORDS if normalize(kw) in hay)
     excluded = any(normalize(kw) in hay for kw in EXCLUDED_NON_TECH_KEYWORDS)
     penalty = sum(1 for kw in IRRELEVANT_HINT_KEYWORDS if normalize(kw) in hay)
 
-    if excluded:
+    if excluded or penalty >= 1:
         return False
-    if penalty >= 2:
+    has_core_anchor = (world_anchor_hit + infra_anchor_hit) >= 1
+    if not has_core_anchor:
         return False
-    if world_hit + infra_hit < 1:
-        return False
-    return (world_hit + infra_hit + tech_hit) >= 2
+    return (world_hit + infra_hit + tech_hit) >= 3
 
 
 def fetch_arxiv() -> List[Paper]:
@@ -503,13 +516,28 @@ def collect_recent_papers() -> Tuple[List[Paper], Dict[str, int]]:
 
 def classify_paper(paper: Paper) -> str:
     txt = normalize(f"{paper.title} {paper.abstract}")
-    world_keywords = ["world engine", "world model", "world simulator", "世界引擎", "世界模型", "digital twin"]
-    infra_keywords = ["data infrastructure", "data pipeline", "data ingestion", "data processing", "合成数据", "数据基础设施", "数据采集", "数据处理", "synthetic data"]
+    world_keywords = [
+        "world engine", "world model", "world simulator", "interactive world", "digital twin",
+        "embodied", "robot simulation", "世界引擎", "世界模型", "仿真引擎",
+    ]
+    infra_keywords = [
+        "data infrastructure", "data infra", "data pipeline", "data ingestion", "etl",
+        "stream processing", "batch processing", "feature store", "data lakehouse",
+        "data governance", "data observability", "vector database", "synthetic data generation",
+        "数据基础设施", "数据管道", "湖仓", "数据治理", "合成数据",
+    ]
     world_score = sum(1 for k in world_keywords if normalize(k) in txt)
     infra_score = sum(1 for k in infra_keywords if normalize(k) in txt)
-    if world_score >= infra_score:
+
+    if infra_score > world_score:
+        return "Data Infra"
+    if world_score > infra_score:
         return "World Engine"
-    return "Data Infra"
+
+    # tie-break: infra-first when data stack terms appear
+    if any(normalize(k) in txt for k in ["pipeline", "ingestion", "etl", "lakehouse", "feature store", "数据管道", "湖仓"]):
+        return "Data Infra"
+    return "World Engine"
 
 
 def build_day_lead_from_analyses(items: List[AnalyzedPaper]) -> str:

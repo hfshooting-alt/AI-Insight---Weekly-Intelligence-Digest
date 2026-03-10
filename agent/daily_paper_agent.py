@@ -115,6 +115,16 @@ def parse_date_parts(parts: List[int]) -> Optional[dt.datetime]:
         return None
 
 
+def parse_date_string(value: Optional[str]) -> Optional[dt.datetime]:
+    if not value:
+        return None
+    try:
+        d = dt.date.fromisoformat(value)
+        return dt.datetime(d.year, d.month, d.day, tzinfo=dt.timezone.utc)
+    except Exception:
+        return None
+
+
 def html_strip(value: str) -> str:
     v = html.unescape(value or "")
     return re.sub(r"<[^>]+>", " ", v)
@@ -170,18 +180,17 @@ def fetch_crossref() -> List[Paper]:
             "rows": 30,
             "sort": "indexed",
             "order": "desc",
-            "select": "title,URL,abstract,container-title,author,indexed,published-online,published-print,created",
+            "select": "title,URL,abstract,container-title,author,published-online,published-print,issued",
         }
         resp = requests.get("https://api.crossref.org/works", params=params, timeout=30)
         resp.raise_for_status()
         for item in resp.json().get("message", {}).get("items", []):
             title = (item.get("title") or [""])[0]
             abstract = html_strip(item.get("abstract") or "")
-            indexed = parse_iso_datetime((item.get("indexed") or {}).get("date-time"))
-            created = parse_iso_datetime((item.get("created") or {}).get("date-time"))
             published_online = parse_date_parts(((item.get("published-online") or {}).get("date-parts") or [[None]])[0])
             published_print = parse_date_parts(((item.get("published-print") or {}).get("date-parts") or [[None]])[0])
-            published = indexed or created or published_online or published_print
+            issued = parse_date_parts(((item.get("issued") or {}).get("date-parts") or [[None]])[0])
+            published = published_online or published_print or issued
             if not in_beijing_yesterday_or_today(published):
                 continue
             venue = (item.get("container-title") or ["Crossref"])[0]
@@ -231,10 +240,7 @@ def fetch_openalex() -> List[Paper]:
         resp = requests.get("https://api.openalex.org/works", params=params, timeout=30)
         resp.raise_for_status()
         for r in resp.json().get("results", []):
-            updated = parse_iso_datetime(r.get("updated_date"))
-            created = parse_iso_datetime(r.get("created_date"))
-            pub_date = parse_iso_datetime(r.get("publication_date"))
-            published = updated or created or pub_date
+            published = parse_date_string(r.get("publication_date"))
             if not in_beijing_yesterday_or_today(published):
                 continue
             authors = [
@@ -293,9 +299,7 @@ def fetch_rss_journals() -> List[Paper]:
         for e in feed.entries:
             published = (
                 parse_iso_datetime(e.get("published"))
-                or parse_iso_datetime(e.get("updated"))
                 or parse_struct_time(e.get("published_parsed"))
-                or parse_struct_time(e.get("updated_parsed"))
             )
             if not in_beijing_yesterday_or_today(published):
                 continue
@@ -366,10 +370,12 @@ def build_prompt(paper: Paper) -> str:
         f"""
         你是论文深读器（增量导向）。
 
-        请分析下面论文并严格输出三段：
-        一句话核心（45字以内）
-        几个要点（3到6条，关注缺口、增量、证据强弱、风险）
-        全文精读（分小标题，包含：缺口与增量、核心机制、关键概念）
+        请分析下面论文并输出三段内容：
+        第一段给一句核心结论
+        第二段给3到6条要点
+        第三段给全文精读（缺口与增量、核心机制、关键概念）
+
+        输出时不要写栏目标题，不要写括号解释，不要写字数要求。
 
         论文元信息：
         标题：{paper.title}
@@ -404,12 +410,30 @@ def clean_symbols(text: str) -> str:
     return "\n".join(lines)
 
 
+def strip_meta_labels(text: str) -> str:
+    banned = [
+        "一句话核心",
+        "45字",
+        "几个要点",
+        "全文精读",
+        "核心结论",
+    ]
+    kept: List[str] = []
+    for line in text.splitlines():
+        s = line.strip()
+        if any(k in s for k in banned):
+            continue
+        kept.append(line)
+    return "\n".join(kept).strip()
+
+
 def to_html(report_text: str) -> str:
     lines = report_text.splitlines()
     html_lines = [
         "<html><body style='font-family:Arial,Helvetica,sans-serif;line-height:1.7;color:#111;'>",
         "<div style='max-width:960px;margin:0 auto;padding:16px;'>",
     ]
+    in_paper = False
     for line in lines:
         striped = line.strip()
         if not striped:
@@ -418,11 +442,17 @@ def to_html(report_text: str) -> str:
         if striped.startswith("日报标题"):
             html_lines.append(f"<h1 style='font-size:28px;margin:8px 0 12px'>{html.escape(striped)}</h1>")
         elif striped.startswith("论文") and "：" in striped:
-            html_lines.append(f"<h2 style='font-size:20px;margin:18px 0 8px'>{html.escape(striped)}</h2>")
+            if in_paper:
+                html_lines.append("</div>")
+            in_paper = True
+            html_lines.append("<div style='border-left:4px solid #3b82f6;background:#f8fafc;padding:12px 14px;margin:12px 0;'>")
+            html_lines.append(f"<h2 style='font-size:20px;margin:0 0 8px'>{html.escape(striped)}</h2>")
         elif striped.startswith("分隔线"):
             html_lines.append("<hr style='border:none;border-top:1px solid #ddd;margin:18px 0' />")
         else:
             html_lines.append(f"<p style='margin:6px 0'>{html.escape(striped)}</p>")
+    if in_paper:
+        html_lines.append("</div>")
     html_lines.append("</div></body></html>")
     return "\n".join(html_lines)
 
@@ -435,33 +465,26 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
     if not papers:
         text = (
             f"日报标题：World Engine 与 Data Infra 论文日报\n"
-            f"检索日期范围：北京时间 {yesterday} 与 {today}\n"
             f"结果：未检索到符合条件的论文\n"
             "说明：当前严格按北京时间昨天与今天筛选"
         )
         text = clean_symbols(text)
         return text, to_html(text)
 
-    source_summary = "，".join([f"{k}:{v}" for k, v in source_counts.items()])
     max_papers = int(os.environ.get("MAX_PAPERS", "12"))
 
-    blocks = [
-        "日报标题：World Engine 与 Data Infra 论文日报",
-        f"检索日期范围：北京时间 {yesterday} 与 {today}",
-        "覆盖来源：arXiv，Crossref，OpenAlex，Semantic Scholar，期刊RSS",
-        f"来源命中统计：{source_summary}",
-        f"入选论文数量：{min(len(papers), max_papers)}",
-    ]
+    blocks = ["日报标题：World Engine 与 Data Infra 论文日报"]
 
     for idx, paper in enumerate(papers[:max_papers], start=1):
-        analysis = clean_symbols(analyze_paper(client, paper))
+        published_bj = paper.published.astimezone(BEIJING_TZ).strftime("%Y-%m-%d %H:%M")
+        analysis = clean_symbols(strip_meta_labels(analyze_paper(client, paper)))
         blocks.extend(
             [
                 "分隔线",
                 f"论文{idx}：{paper.title}",
                 f"来源：{paper.source}",
+                f"发布时间：{published_bj}（北京时间）",
                 f"链接：{paper.url}",
-                "精读内容：",
                 analysis,
             ]
         )

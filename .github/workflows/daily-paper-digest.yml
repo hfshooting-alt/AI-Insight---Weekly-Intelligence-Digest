@@ -1,0 +1,40 @@
+name: Daily Paper Digest (Beijing 10:00)
+
+on:
+  schedule:
+    # GitHub Actions uses UTC for cron.
+    # 10:00 Asia/Shanghai (UTC+8) == 02:00 UTC.
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  send-digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+      REPORT_EMAIL_TO: ${{ secrets.REPORT_EMAIL_TO }}
+      REPORT_EMAIL_FROM: ${{ secrets.REPORT_EMAIL_FROM || secrets.REPORT_EMAIL_TO }}
+      SMTP_HOST: ${{ secrets.SMTP_HOST || 'smtp.163.com' }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT || '465' }}
+      SMTP_USER: ${{ secrets.SMTP_USER || secrets.REPORT_EMAIL_FROM || secrets.REPORT_EMAIL_TO }}
+      SMTP_PASS: ${{ secrets.SMTP_PASS }}
+      AGENT_MODE: once
+      TZ: Asia/Shanghai
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r agent/requirements.txt
+
+      - name: Run daily paper agent
+        run: python agent/daily_paper_agent.py

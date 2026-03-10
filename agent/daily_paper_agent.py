@@ -59,6 +59,10 @@ RSS_SOURCES = {
     "medRxiv": "https://connect.medrxiv.org/relate/feed/181",
 }
 
+REQUEST_HEADERS = {
+    "User-Agent": "daily-paper-agent/1.0 (academic-digest; mailto:report@example.com)",
+}
+
 
 @dataclass
 class Paper:
@@ -139,6 +143,13 @@ def in_beijing_yesterday_or_today(published: Optional[dt.datetime]) -> bool:
     return bj_date == today or bj_date == yesterday
 
 
+def beijing_day_window() -> Tuple[str, str]:
+    """Return yesterday/today in Beijing as YYYY-MM-DD (for source-side filters)."""
+    today = now_beijing().date()
+    yesterday = today - dt.timedelta(days=1)
+    return yesterday.strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d")
+
+
 def topical_score(title: str, abstract: str) -> int:
     hay = normalize(f"{title} {abstract}")
     return sum(1 for kw in TOPIC_KEYWORDS if normalize(kw) in hay)
@@ -170,19 +181,19 @@ def fetch_arxiv() -> List[Paper]:
 
 
 def fetch_crossref() -> List[Paper]:
-    from_date = (now_utc() - dt.timedelta(days=2)).strftime("%Y-%m-%d")
+    from_date, to_date = beijing_day_window()
     papers: List[Paper] = []
 
     for term in SEARCH_TERMS:
         params = {
             "query.bibliographic": term,
-            "filter": f"from-index-date:{from_date}",
+            "filter": f"from-pub-date:{from_date},until-pub-date:{to_date},type:journal-article",
             "rows": 30,
-            "sort": "indexed",
+            "sort": "published",
             "order": "desc",
             "select": "title,URL,abstract,container-title,author,published-online,published-print,issued",
         }
-        resp = requests.get("https://api.crossref.org/works", params=params, timeout=30)
+        resp = requests.get("https://api.crossref.org/works", params=params, timeout=30, headers=REQUEST_HEADERS)
         resp.raise_for_status()
         for item in resp.json().get("message", {}).get("items", []):
             title = (item.get("title") or [""])[0]
@@ -227,17 +238,18 @@ def reconstruct_abstract(inverted_index: Dict[str, List[int]]) -> str:
 
 
 def fetch_openalex() -> List[Paper]:
-    from_date = (now_utc() - dt.timedelta(days=2)).strftime("%Y-%m-%d")
+    from_date, to_date = beijing_day_window()
     papers: List[Paper] = []
 
     for term in SEARCH_TERMS:
         params = {
             "search": term,
-            "filter": f"from_updated_date:{from_date}",
-            "sort": "updated_date:desc",
+            "filter": f"from_publication_date:{from_date},to_publication_date:{to_date}",
+            "sort": "publication_date:desc",
             "per-page": 25,
+            "mailto": "report@example.com",
         }
-        resp = requests.get("https://api.openalex.org/works", params=params, timeout=30)
+        resp = requests.get("https://api.openalex.org/works", params=params, timeout=30, headers=REQUEST_HEADERS)
         resp.raise_for_status()
         for r in resp.json().get("results", []):
             published = parse_date_string(r.get("publication_date"))
@@ -265,18 +277,25 @@ def fetch_semantic_scholar() -> List[Paper]:
     papers: List[Paper] = []
     base = "https://api.semanticscholar.org/graph/v1/paper/search"
 
+    from_date, to_date = beijing_day_window()
+
     for term in SEARCH_TERMS:
         params = {
             "query": term,
             "limit": 25,
             "offset": 0,
             "fields": "title,abstract,url,authors,publicationDate,publicationVenue",
+            "year": str(now_beijing().year),
         }
-        resp = requests.get(base, params=params, timeout=30)
+        resp = requests.get(base, params=params, timeout=30, headers=REQUEST_HEADERS)
         resp.raise_for_status()
         for p in resp.json().get("data", []):
             published = parse_iso_datetime(p.get("publicationDate"))
+            if not published:
+                published = parse_date_string(p.get("publicationDate"))
             if not in_beijing_yesterday_or_today(published):
+                continue
+            if not (from_date <= published.astimezone(BEIJING_TZ).strftime("%Y-%m-%d") <= to_date):
                 continue
             venue = (p.get("publicationVenue") or {}).get("name") or "SemanticScholar"
             papers.append(
@@ -345,6 +364,32 @@ def dedup_rank(papers: Iterable[Paper]) -> List[Paper]:
     filtered = [p for p in dedup.values() if topical_score(p.title, p.abstract) > 0]
     filtered.sort(key=lambda x: (topical_score(x.title, x.abstract), x.published), reverse=True)
     return filtered
+
+
+def diversify_sources(papers: List[Paper], limit: int) -> List[Paper]:
+    """Prefer source diversity so non-arXiv papers are not starved by ranking."""
+    if len(papers) <= limit:
+        return papers
+    by_source: Dict[str, List[Paper]] = {}
+    for p in papers:
+        by_source.setdefault(p.source.split("/", 1)[0], []).append(p)
+
+    ordered_sources = sorted(by_source.keys(), key=lambda s: len(by_source[s]), reverse=True)
+    for s in ordered_sources:
+        by_source[s].sort(key=lambda x: (topical_score(x.title, x.abstract), x.published), reverse=True)
+
+    out: List[Paper] = []
+    while len(out) < limit:
+        progressed = False
+        for source in ordered_sources:
+            if by_source[source]:
+                out.append(by_source[source].pop(0))
+                progressed = True
+                if len(out) >= limit:
+                    break
+        if not progressed:
+            break
+    return out
 
 
 def collect_recent_papers() -> Tuple[List[Paper], Dict[str, int]]:
@@ -592,7 +637,7 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
         return text, to_html(text)
 
     max_papers = int(os.environ.get("MAX_PAPERS", "12"))
-    selected = papers[:max_papers]
+    selected = diversify_sources(papers, max_papers)
 
     world_papers = [p for p in selected if classify_paper(p) == "World Engine"]
     infra_papers = [p for p in selected if classify_paper(p) == "Data Infra"]

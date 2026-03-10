@@ -13,6 +13,7 @@ jobs:
     timeout-minutes: 30
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
       REPORT_EMAIL_TO: ${{ secrets.REPORT_EMAIL_TO }}
       REPORT_EMAIL_FROM: ${{ secrets.REPORT_EMAIL_FROM || secrets.REPORT_EMAIL_TO }}
       SMTP_HOST: ${{ secrets.SMTP_HOST || 'smtp.163.com' }}

@@ -111,6 +111,7 @@ python daily_paper_agent.py
 
 **必填**
 - `OPENAI_API_KEY`
+- `OPENAI_MODEL`（例如你可用的 GPT-5.x 模型ID）
 - `REPORT_EMAIL_TO`
 - `SMTP_PASS`（163客户端授权码）
 

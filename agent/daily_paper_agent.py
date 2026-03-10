@@ -22,6 +22,8 @@ import requests
 from apscheduler.schedulers.blocking import BlockingScheduler
 from openai import OpenAI
 
+BEIJING_TZ = dt.timezone(dt.timedelta(hours=8))
+
 SEARCH_TERMS = [
     "world engine",
     "world model",
@@ -72,6 +74,10 @@ def now_utc() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
 
 
+def now_beijing() -> dt.datetime:
+    return dt.datetime.now(BEIJING_TZ)
+
+
 def normalize(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").lower()).strip()
 
@@ -114,10 +120,13 @@ def html_strip(value: str) -> str:
     return re.sub(r"<[^>]+>", " ", v)
 
 
-def within_hours(published: Optional[dt.datetime], hours: int) -> bool:
+def in_beijing_yesterday_or_today(published: Optional[dt.datetime]) -> bool:
     if not published:
         return False
-    return published >= now_utc() - dt.timedelta(hours=hours)
+    bj_date = published.astimezone(BEIJING_TZ).date()
+    today = now_beijing().date()
+    yesterday = today - dt.timedelta(days=1)
+    return bj_date == today or bj_date == yesterday
 
 
 def topical_score(title: str, abstract: str) -> int:
@@ -125,7 +134,7 @@ def topical_score(title: str, abstract: str) -> int:
     return sum(1 for kw in TOPIC_KEYWORDS if normalize(kw) in hay)
 
 
-def fetch_arxiv(lookback_hours: int) -> List[Paper]:
+def fetch_arxiv() -> List[Paper]:
     query = " OR ".join([f'all:"{term}"' for term in SEARCH_TERMS])
     url = (
         "http://export.arxiv.org/api/query?"
@@ -135,7 +144,7 @@ def fetch_arxiv(lookback_hours: int) -> List[Paper]:
     papers: List[Paper] = []
     for e in feed.entries:
         published = parse_iso_datetime(e.get("published"))
-        if not within_hours(published, lookback_hours):
+        if not in_beijing_yesterday_or_today(published):
             continue
         papers.append(
             Paper(
@@ -150,8 +159,8 @@ def fetch_arxiv(lookback_hours: int) -> List[Paper]:
     return papers
 
 
-def fetch_crossref(lookback_hours: int) -> List[Paper]:
-    from_date = (now_utc() - dt.timedelta(days=7)).strftime("%Y-%m-%d")
+def fetch_crossref() -> List[Paper]:
+    from_date = (now_utc() - dt.timedelta(days=2)).strftime("%Y-%m-%d")
     papers: List[Paper] = []
 
     for term in SEARCH_TERMS:
@@ -165,9 +174,7 @@ def fetch_crossref(lookback_hours: int) -> List[Paper]:
         }
         resp = requests.get("https://api.crossref.org/works", params=params, timeout=30)
         resp.raise_for_status()
-        items = resp.json().get("message", {}).get("items", [])
-
-        for item in items:
+        for item in resp.json().get("message", {}).get("items", []):
             title = (item.get("title") or [""])[0]
             abstract = html_strip(item.get("abstract") or "")
             indexed = parse_iso_datetime((item.get("indexed") or {}).get("date-time"))
@@ -175,9 +182,8 @@ def fetch_crossref(lookback_hours: int) -> List[Paper]:
             published_online = parse_date_parts(((item.get("published-online") or {}).get("date-parts") or [[None]])[0])
             published_print = parse_date_parts(((item.get("published-print") or {}).get("date-parts") or [[None]])[0])
             published = indexed or created or published_online or published_print
-            if not within_hours(published, lookback_hours):
+            if not in_beijing_yesterday_or_today(published):
                 continue
-
             venue = (item.get("container-title") or ["Crossref"])[0]
             authors = [
                 f"{a.get('given', '')} {a.get('family', '')}".strip()
@@ -211,8 +217,8 @@ def reconstruct_abstract(inverted_index: Dict[str, List[int]]) -> str:
     return " ".join(words).strip()
 
 
-def fetch_openalex(lookback_hours: int) -> List[Paper]:
-    from_date = (now_utc() - dt.timedelta(days=7)).strftime("%Y-%m-%d")
+def fetch_openalex() -> List[Paper]:
+    from_date = (now_utc() - dt.timedelta(days=2)).strftime("%Y-%m-%d")
     papers: List[Paper] = []
 
     for term in SEARCH_TERMS:
@@ -229,9 +235,8 @@ def fetch_openalex(lookback_hours: int) -> List[Paper]:
             created = parse_iso_datetime(r.get("created_date"))
             pub_date = parse_iso_datetime(r.get("publication_date"))
             published = updated or created or pub_date
-            if not within_hours(published, lookback_hours):
+            if not in_beijing_yesterday_or_today(published):
                 continue
-
             authors = [
                 (a.get("author") or {}).get("display_name", "")
                 for a in r.get("authorships", [])
@@ -250,7 +255,7 @@ def fetch_openalex(lookback_hours: int) -> List[Paper]:
     return papers
 
 
-def fetch_semantic_scholar(lookback_hours: int) -> List[Paper]:
+def fetch_semantic_scholar() -> List[Paper]:
     papers: List[Paper] = []
     base = "https://api.semanticscholar.org/graph/v1/paper/search"
 
@@ -263,10 +268,9 @@ def fetch_semantic_scholar(lookback_hours: int) -> List[Paper]:
         }
         resp = requests.get(base, params=params, timeout=30)
         resp.raise_for_status()
-
         for p in resp.json().get("data", []):
             published = parse_iso_datetime(p.get("publicationDate"))
-            if not within_hours(published, lookback_hours):
+            if not in_beijing_yesterday_or_today(published):
                 continue
             venue = (p.get("publicationVenue") or {}).get("name") or "SemanticScholar"
             papers.append(
@@ -282,7 +286,7 @@ def fetch_semantic_scholar(lookback_hours: int) -> List[Paper]:
     return papers
 
 
-def fetch_rss_journals(lookback_hours: int) -> List[Paper]:
+def fetch_rss_journals() -> List[Paper]:
     papers: List[Paper] = []
     for source_name, rss_url in RSS_SOURCES.items():
         feed = feedparser.parse(rss_url)
@@ -293,7 +297,7 @@ def fetch_rss_journals(lookback_hours: int) -> List[Paper]:
                 or parse_struct_time(e.get("published_parsed"))
                 or parse_struct_time(e.get("updated_parsed"))
             )
-            if not within_hours(published, lookback_hours):
+            if not in_beijing_yesterday_or_today(published):
                 continue
 
             title = e.get("title", "")
@@ -339,55 +343,45 @@ def dedup_rank(papers: Iterable[Paper]) -> List[Paper]:
     return filtered
 
 
-def collect_recent_papers() -> Tuple[List[Paper], int, Dict[str, int]]:
-    strict_hours = int(os.environ.get("LOOKBACK_HOURS", "24"))
-    fallback_hours = int(os.environ.get("FALLBACK_LOOKBACK_HOURS", "168"))
+def collect_recent_papers() -> Tuple[List[Paper], Dict[str, int]]:
     sources = [fetch_arxiv, fetch_crossref, fetch_openalex, fetch_semantic_scholar, fetch_rss_journals]
+    got: List[Paper] = []
+    counts: Dict[str, int] = {}
 
-    def collect(hours: int) -> Tuple[List[Paper], Dict[str, int]]:
-        got: List[Paper] = []
-        counts: Dict[str, int] = {}
-        for src in sources:
-            try:
-                rows = src(hours)
-                got.extend(rows)
-                counts[src.__name__] = len(rows)
-                print(f"[INFO] {src.__name__}: {len(rows)} rows within {hours}h")
-            except Exception as exc:
-                counts[src.__name__] = 0
-                print(f"[WARN] {src.__name__} failed: {exc}")
-        return dedup_rank(got), counts
+    for src in sources:
+        try:
+            rows = src()
+            got.extend(rows)
+            counts[src.__name__] = len(rows)
+            print(f"[INFO] {src.__name__}: {len(rows)} rows in Beijing yesterday/today")
+        except Exception as exc:
+            counts[src.__name__] = 0
+            print(f"[WARN] {src.__name__} failed: {exc}")
 
-    strict, strict_counts = collect(strict_hours)
-    if strict:
-        return strict, strict_hours, strict_counts
-
-    print(f"[WARN] no papers in {strict_hours}h, fallback to {fallback_hours}h window")
-    fallback, fallback_counts = collect(fallback_hours)
-    return fallback, fallback_hours, fallback_counts
+    return dedup_rank(got), counts
 
 
 def build_prompt(paper: Paper) -> str:
     return textwrap.dedent(
         f"""
-        你是论文深读器（增量导向 + 博导审稿风格）。
+        你是论文深读器（增量导向）。
 
         请分析下面论文并严格输出三段：
-        1) 一句话核心（<=45字）
-        2) 3-6个bullet points（关注缺口、增量、证据强弱、风险）
-        3) 全文精读（分小标题，包含：缺口与增量、核心机制、关键概念、博导审稿判决）
+        一句话核心（45字以内）
+        几个要点（3到6条，关注缺口、增量、证据强弱、风险）
+        全文精读（分小标题，包含：缺口与增量、核心机制、关键概念）
 
         论文元信息：
-        - 标题：{paper.title}
-        - 来源：{paper.source}
-        - 链接：{paper.url}
-        - 作者：{', '.join(paper.authors[:10]) if paper.authors else 'N/A'}
-        - 摘要：{paper.abstract[:7000]}
+        标题：{paper.title}
+        来源：{paper.source}
+        链接：{paper.url}
+        作者：{', '.join(paper.authors[:10]) if paper.authors else 'N/A'}
+        摘要：{paper.abstract[:7000]}
 
         重要约束：
-        - 判断这篇工作“增量是否站得住”。
-        - 给出明确判决：strong accept / weak accept / borderline / weak reject / strong reject。
-        - 中文输出。
+        判断这篇工作增量是否站得住。
+        不要输出审稿结论板块。
+        中文输出。
         """
     ).strip()
 
@@ -404,65 +398,77 @@ def analyze_paper(client: OpenAI, paper: Paper) -> str:
     return (completion.choices[0].message.content or "").strip()
 
 
+def clean_symbols(text: str) -> str:
+    cleaned = text.replace("#", "").replace("*", "")
+    lines = [re.sub(r"^[\-\s]+", "", line) for line in cleaned.splitlines()]
+    return "\n".join(lines)
+
+
 def to_html(report_text: str) -> str:
     lines = report_text.splitlines()
     html_lines = [
-        "<html><body style='font-family:Arial,Helvetica,sans-serif;line-height:1.6;color:#111;'>",
-        "<div style='max-width:920px;margin:0 auto;padding:16px;'>",
+        "<html><body style='font-family:Arial,Helvetica,sans-serif;line-height:1.7;color:#111;'>",
+        "<div style='max-width:960px;margin:0 auto;padding:16px;'>",
     ]
     for line in lines:
-        if line.startswith("# "):
-            html_lines.append(f"<h1 style='font-size:28px;margin:8px 0 12px'>{html.escape(line[2:])}</h1>")
-        elif line.startswith("## "):
-            html_lines.append(f"<h2 style='font-size:20px;margin:18px 0 8px'>{html.escape(line[3:])}</h2>")
-        elif line.startswith("### "):
-            html_lines.append(f"<h3 style='font-size:16px;margin:12px 0 6px'>{html.escape(line[4:])}</h3>")
-        elif line.startswith("- "):
-            html_lines.append(f"<p style='margin:4px 0 4px 16px'>• {html.escape(line[2:])}</p>")
-        elif line.strip() == "---":
-            html_lines.append("<hr style='border:none;border-top:1px solid #ddd;margin:18px 0' />")
-        elif line.strip():
-            safe = html.escape(line).replace("**", "")
-            html_lines.append(f"<p style='margin:6px 0'>{safe}</p>")
-        else:
+        striped = line.strip()
+        if not striped:
             html_lines.append("<div style='height:8px'></div>")
+            continue
+        if striped.startswith("日报标题"):
+            html_lines.append(f"<h1 style='font-size:28px;margin:8px 0 12px'>{html.escape(striped)}</h1>")
+        elif striped.startswith("论文") and "：" in striped:
+            html_lines.append(f"<h2 style='font-size:20px;margin:18px 0 8px'>{html.escape(striped)}</h2>")
+        elif striped.startswith("分隔线"):
+            html_lines.append("<hr style='border:none;border-top:1px solid #ddd;margin:18px 0' />")
+        else:
+            html_lines.append(f"<p style='margin:6px 0'>{html.escape(striped)}</p>")
     html_lines.append("</div></body></html>")
     return "\n".join(html_lines)
 
 
 def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
-    papers, hours_used, source_counts = collect_recent_papers()
+    papers, source_counts = collect_recent_papers()
+    today = now_beijing().date()
+    yesterday = today - dt.timedelta(days=1)
+
     if not papers:
         text = (
-            "# World Engine & Data Infra 每日论文情报\n"
-            "未检索到匹配论文。\n"
-            "建议检查：API连通性、关键词、以及各来源限流。"
+            f"日报标题：World Engine 与 Data Infra 论文日报\n"
+            f"检索日期范围：北京时间 {yesterday} 与 {today}\n"
+            f"结果：未检索到符合条件的论文\n"
+            "说明：当前严格按北京时间昨天与今天筛选"
         )
+        text = clean_symbols(text)
         return text, to_html(text)
 
-    source_summary = ", ".join([f"{k}:{v}" for k, v in source_counts.items()])
-    header = (
-        "# World Engine & Data Infra 每日论文情报\n"
-        "### 今日概览\n"
-        f"- 检索窗口：最近{hours_used}小时\n"
-        f"- 覆盖来源：arXiv、Crossref、OpenAlex、Semantic Scholar、期刊RSS\n"
-        f"- 原始命中：{source_summary}\n"
-        f"- 入选论文：{min(len(papers), int(os.environ.get('MAX_PAPERS', '12')))}篇\n"
-    )
-
-    sections = []
+    source_summary = "，".join([f"{k}:{v}" for k, v in source_counts.items()])
     max_papers = int(os.environ.get("MAX_PAPERS", "12"))
-    for i, paper in enumerate(papers[:max_papers], start=1):
-        analysis = analyze_paper(client, paper)
-        sections.append(
-            f"## {i}. {paper.title}\n"
-            f"- 来源：{paper.source}\n"
-            f"- 链接：{paper.url}\n\n"
-            f"{analysis}\n"
+
+    blocks = [
+        "日报标题：World Engine 与 Data Infra 论文日报",
+        f"检索日期范围：北京时间 {yesterday} 与 {today}",
+        "覆盖来源：arXiv，Crossref，OpenAlex，Semantic Scholar，期刊RSS",
+        f"来源命中统计：{source_summary}",
+        f"入选论文数量：{min(len(papers), max_papers)}",
+    ]
+
+    for idx, paper in enumerate(papers[:max_papers], start=1):
+        analysis = clean_symbols(analyze_paper(client, paper))
+        blocks.extend(
+            [
+                "分隔线",
+                f"论文{idx}：{paper.title}",
+                f"来源：{paper.source}",
+                f"链接：{paper.url}",
+                "精读内容：",
+                analysis,
+            ]
         )
 
-    text_digest = header + "\n---\n\n".join(sections)
-    return text_digest, to_html(text_digest)
+    text = "\n".join(blocks)
+    text = clean_symbols(text)
+    return text, to_html(text)
 
 
 def send_email(subject: str, text_body: str, html_body: str) -> None:
@@ -491,7 +497,7 @@ def run_once() -> None:
     text_digest, html_digest = build_daily_digest(client)
     date_str = dt.datetime.now().strftime("%Y-%m-%d")
     send_email(
-        subject=f"[{date_str}] World Engine & Data Infra 每日论文简报",
+        subject=f"[{date_str}] World Engine 与 Data Infra 每日论文简报",
         text_body=text_digest,
         html_body=html_digest,
     )

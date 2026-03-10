@@ -39,13 +39,13 @@ MIT
 
 ---
 
-## 新增：24h论文情报 Agent（World Engine + 数据Infra）
+## 新增：北京时间昨日与今日论文情报 Agent（World Engine + 数据Infra）
 
 已新增一个可运行的 Agent：`agent/daily_paper_agent.py`。
 
 它会：
 
-1. 自动抓取最近24小时论文（多来源，不局限单站）
+1. 自动抓取严格限定在“北京时间昨天与今天”的论文（多来源，不局限单站）
    - `arXiv`（预印本）
    - `Crossref`（聚合 Science/AAAS、Elsevier、Springer、ACM、IEEE 等大量出版方索引）
    - `OpenAlex`（跨学科开放索引）
@@ -53,7 +53,7 @@ MIT
 3. 调用 LLM 生成每篇论文报告：
    - 一句话核心
    - 若干 bullet points
-   - 全文精读（缺口、增量、证据、博导判决）
+   - 全文精读（缺口、增量、证据，不含审稿判决板块）
 4. 每天上午10点自动发送日报到指定邮箱。
 
 ### 你要求的两个变量
@@ -121,19 +121,17 @@ python daily_paper_agent.py
 - `SMTP_PORT`（默认 `465`）
 
 
-### 检索增强（修复“24h无结果”）
+### 检索与时间范围（严格北京时间昨天与今天）
 
-为避免只返回“过去24小时没有匹配论文”，Agent 现在采用：
+Agent 现在采用以下策略：
 
 - *搜索引擎式多关键词检索*：对每个关键词分别请求多个索引源，而非单次宽泛请求。
 - *多源覆盖*：`arXiv + Crossref + OpenAlex + Semantic Scholar`。
 - *时间戳优先*：优先用 `indexed/updated/created` 的时间戳，而不是只有日期粒度的字段。
-- *自动回退窗口*：若 24h 结果为空，自动回退到 168h（7天）并在报告头部注明检索窗口。
+- *严格日期边界*：只保留北京时间昨天与今天的论文，不做跨周回退。
 
 可通过环境变量调优：
 
-- `LOOKBACK_HOURS`（默认 `24`）
-- `FALLBACK_LOOKBACK_HOURS`（默认 `168`）
 - `MAX_PAPERS`（默认 `12`）
 - `OPENAI_MODEL`（默认 `gpt-4o-mini`）
 
@@ -154,4 +152,11 @@ python daily_paper_agent.py
 - `Semantic Scholar`
 - `期刊 RSS`：Nature、Science、PNAS、PLOS ONE、bioRxiv、medRxiv
 
-同时仍保留多关键词 fan-out + 24h→7d 回退窗口，降低“空日报”概率。
+严格按北京时间昨天与今天筛选；如果没有命中会明确输出“未检索到符合条件的论文”。
+
+
+### 输出格式约束更新
+
+- 日报正文不使用 `#`、`*` 等符号。
+- 每篇论文仍保留序号、标题、来源、链接和精读内容。
+- 已移除“博导审稿判决”板块。

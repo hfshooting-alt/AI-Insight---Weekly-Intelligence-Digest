@@ -50,6 +50,26 @@ TOPIC_KEYWORDS = SEARCH_TERMS + [
     "仿真",
 ]
 
+WORLD_STRICT_KEYWORDS = [
+    "world engine", "world model", "world simulator", "interactive world",
+    "physics simulator", "robot simulation", "digital twin", "embodied",
+    "世界引擎", "世界模型", "仿真引擎",
+]
+
+INFRA_STRICT_KEYWORDS = [
+    "data infrastructure", "data infra", "data pipeline", "data ingestion",
+    "data processing", "stream processing", "batch processing", "etl",
+    "feature store", "data lake", "data lakehouse", "data quality",
+    "data orchestration", "knowledge graph infrastructure", "synthetic data generation",
+    "数据基础设施", "数据管道", "数据采集", "数据处理", "流处理", "湖仓",
+]
+
+IRRELEVANT_HINT_KEYWORDS = [
+    "t cell", "tumor", "cancer", "clinical", "patient", "medical", "medicine",
+    "drug", "antigen", "genome", "protein", "cell", "spacecraft", "satellite",
+    "astronomy", "orbit", "航天", "医学", "肿瘤", "临床", "蛋白", "细胞",
+]
+
 RSS_SOURCES = {
     "Nature": "https://www.nature.com/nature.rss",
     "Science": "https://www.science.org/action/showFeed?type=etoc&feed=rss&jc=science",
@@ -159,7 +179,21 @@ def beijing_day_window() -> Tuple[str, str]:
 
 def topical_score(title: str, abstract: str) -> int:
     hay = normalize(f"{title} {abstract}")
-    return sum(1 for kw in TOPIC_KEYWORDS if normalize(kw) in hay)
+    base = sum(1 for kw in TOPIC_KEYWORDS if normalize(kw) in hay)
+    world_hit = sum(1 for kw in WORLD_STRICT_KEYWORDS if normalize(kw) in hay)
+    infra_hit = sum(1 for kw in INFRA_STRICT_KEYWORDS if normalize(kw) in hay)
+    penalty = sum(1 for kw in IRRELEVANT_HINT_KEYWORDS if normalize(kw) in hay)
+    return base + world_hit * 2 + infra_hit * 2 - penalty * 3
+
+
+def is_domain_relevant(title: str, abstract: str) -> bool:
+    hay = normalize(f"{title} {abstract}")
+    world_hit = any(normalize(kw) in hay for kw in WORLD_STRICT_KEYWORDS)
+    infra_hit = any(normalize(kw) in hay for kw in INFRA_STRICT_KEYWORDS)
+    if not (world_hit or infra_hit):
+        return False
+    penalty = sum(1 for kw in IRRELEVANT_HINT_KEYWORDS if normalize(kw) in hay)
+    return penalty <= 1 or (world_hit and infra_hit)
 
 
 def fetch_arxiv() -> List[Paper]:
@@ -332,7 +366,7 @@ def fetch_rss_journals() -> List[Paper]:
 
             title = e.get("title", "")
             summary = html_strip(e.get("summary", "") or e.get("description", ""))
-            if topical_score(title, summary) <= 0:
+            if not is_domain_relevant(title, summary):
                 continue
 
             authors = []
@@ -368,7 +402,7 @@ def dedup_rank(papers: Iterable[Paper]) -> List[Paper]:
         ):
             dedup[key] = p
 
-    filtered = [p for p in dedup.values() if topical_score(p.title, p.abstract) > 0]
+    filtered = [p for p in dedup.values() if is_domain_relevant(p.title, p.abstract)]
     filtered.sort(key=lambda x: (topical_score(x.title, x.abstract), x.published), reverse=True)
     return filtered
 
@@ -437,34 +471,45 @@ def build_day_lead_from_analyses(items: List[AnalyzedPaper]) -> str:
     world_items = [it for it in items if it.category == "World Engine"]
     infra_items = [it for it in items if it.category == "Data Infra"]
 
-    def collect_points(rows: List[AnalyzedPaper]) -> List[str]:
-        points: List[str] = []
+    def count_matches(rows: List[AnalyzedPaper], keywords: List[str]) -> int:
+        c = 0
         for row in rows:
-            for ln in row.analysis_lines:
-                if ln.startswith("一句话核心："):
-                    content = ln.split("：", 1)[1].strip()
-                    if content:
-                        points.append(content.rstrip("。；;,. "))
-                    break
-        return points
+            hay = normalize(f"{row.paper.title} {row.paper.abstract} {' '.join(row.analysis_lines)}")
+            if any(normalize(k) in hay for k in keywords):
+                c += 1
+        return c
 
-    world_points = collect_points(world_items)
-    infra_points = collect_points(infra_items)
-
-    def join_short(points: List[str], limit: int = 3) -> str:
-        if not points:
-            return ""
-        merged = "；".join(points[:limit])
-        return merged[:220]
+    world_sim = count_matches(world_items, ["simulator", "simulation", "仿真", "digital twin", "interactive world"])
+    world_agent = count_matches(world_items, ["robot", "policy", "agent", "embodied", "规划", "控制"])
+    infra_pipeline = count_matches(infra_items, ["pipeline", "ingestion", "etl", "orchestration", "stream", "batch", "数据管道", "采集", "流处理"])
+    infra_quality = count_matches(infra_items, ["quality", "lineage", "lakehouse", "knowledge graph", "synthetic", "数据质量", "湖仓", "知识图谱", "合成数据"])
 
     parts: List[str] = [
-        f"今日导读：今天共收录{len(items)}篇论文，World Engine方向{len(world_items)}篇，Data Infra方向{len(infra_items)}篇。"
+        f"今日导读：今天共收录{len(items)}篇高相关论文，World Engine方向{len(world_items)}篇，Data Infra方向{len(infra_items)}篇。"
     ]
-    if world_points:
-        parts.append(f"World Engine方面，{join_short(world_points)}。")
-    if infra_points:
-        parts.append(f"Data Infra方面，{join_short(infra_points)}。")
-    parts.append("下文已按分类给出逐篇结构化精读，可直接定位到感兴趣方向继续阅读。")
+
+    trend_bits: List[str] = []
+    if world_items:
+        seg = "World Engine 方向主要围绕"
+        seg += "交互式仿真与世界建模" if world_sim else "世界模型能力优化"
+        if world_agent:
+            seg += "，并与智能体训练或策略执行结合"
+        trend_bits.append(seg)
+
+    if infra_items:
+        seg = "Data Infra 方向集中在"
+        if infra_pipeline and infra_quality:
+            seg += "数据采集/处理链路与数据质量治理的协同优化"
+        elif infra_pipeline:
+            seg += "数据采集、管道编排与处理效率"
+        else:
+            seg += "数据资产组织、质量与可复用性"
+        trend_bits.append(seg)
+
+    if trend_bits:
+        parts.append("总体趋势上，" + "；".join(trend_bits) + "。")
+
+    parts.append("整体来看，研究重心更加偏向可落地的系统能力提升，而非单点实验现象。")
     return "".join(parts)
 
 
@@ -654,8 +699,11 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
         text = clean_symbols(text)
         return text, to_html(text)
 
-    max_papers = int(os.environ.get("MAX_PAPERS", "12"))
-    selected = diversify_sources(papers, max_papers)
+    max_papers_raw = os.environ.get("MAX_PAPERS", "").strip()
+    if max_papers_raw:
+        selected = diversify_sources(papers, int(max_papers_raw))
+    else:
+        selected = papers
 
     analyzed: List[AnalyzedPaper] = []
     for paper in selected:

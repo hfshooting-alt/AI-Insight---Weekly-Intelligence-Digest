@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import datetime as dt
 import html
+import json
 import os
 import re
 import smtplib
@@ -135,6 +136,7 @@ class AnalyzedPaper:
     paper: Paper
     category: str
     analysis_lines: List[str]
+    early_score: int = 0
 
 
 def now_utc() -> dt.datetime:
@@ -470,15 +472,14 @@ def dedup_rank(papers: Iterable[Paper]) -> List[Paper]:
         if not prev:
             dedup[key] = p
             continue
-        if (topical_score(p.title, p.abstract), impact_score(p), p.published) > (
+        if (topical_score(p.title, p.abstract), p.published) > (
             topical_score(prev.title, prev.abstract),
-            impact_score(prev),
             prev.published,
         ):
             dedup[key] = p
 
     filtered = [p for p in dedup.values() if is_domain_relevant(p.title, p.abstract)]
-    filtered.sort(key=lambda x: (topical_score(x.title, x.abstract), impact_score(x), x.published), reverse=True)
+    filtered.sort(key=lambda x: (topical_score(x.title, x.abstract), x.published), reverse=True)
     return filtered
 
 
@@ -504,7 +505,7 @@ def diversify_sources(papers: List[Paper], limit: int) -> List[Paper]:
 
     ordered_sources = sorted(by_source.keys(), key=lambda s: len(by_source[s]), reverse=True)
     for s in ordered_sources:
-        by_source[s].sort(key=lambda x: (topical_score(x.title, x.abstract), impact_score(x), x.published), reverse=True)
+        by_source[s].sort(key=lambda x: (topical_score(x.title, x.abstract), x.published), reverse=True)
 
     out: List[Paper] = []
     while len(out) < limit:
@@ -615,6 +616,221 @@ def relevance_components(paper: Paper) -> Tuple[float, float, float]:
 def ranking_score(paper: Paper) -> float:
     r, i, v = relevance_components(paper)
     return r * i * v
+
+
+def _parse_arxiv_id(url: str) -> str:
+    m = re.search(r"arxiv\.org/(abs|pdf)/([0-9]{4}\.[0-9]{4,5})(v\d+)?", url or "", re.I)
+    return m.group(2) if m else ""
+
+
+def _detect_links(text: str) -> Dict[str, str]:
+    t = text or ""
+    out = {"github": "", "huggingface": "", "paperswithcode": ""}
+    g = re.search(r"https?://github\.com/[\w\-\.]+/[\w\-\.]+", t, re.I)
+    h = re.search(r"https?://huggingface\.co/[\w\-\./]+", t, re.I)
+    pwc = re.search(r"https?://paperswithcode\.com/[\w\-\./]+", t, re.I)
+    if g:
+        out["github"] = g.group(0)
+    if h:
+        out["huggingface"] = h.group(0)
+    if pwc:
+        out["paperswithcode"] = pwc.group(0)
+    return out
+
+
+def _github_metrics(repo_url: str) -> Tuple[int, int]:
+    if not repo_url:
+        return 0, 0
+    m = re.search(r"github\.com/([\w\-\.]+)/([\w\-\.]+)", repo_url)
+    if not m:
+        return 0, 0
+    owner, repo = m.group(1), m.group(2).replace('.git', '')
+    try:
+        r = requests.get(f"https://api.github.com/repos/{owner}/{repo}", timeout=15, headers=REQUEST_HEADERS)
+        if r.status_code != 200:
+            return 0, 0
+        js = r.json()
+        return int(js.get("stargazers_count") or 0), int(js.get("forks_count") or 0)
+    except Exception:
+        return 0, 0
+
+
+def compute_early_quality_score(paper: Paper, category: str, fulltext_context: str) -> Dict[str, object]:
+    text_blob = "\n".join([paper.title, paper.abstract, fulltext_context])
+    links = _detect_links(text_blob)
+    github_stars, github_forks = _github_metrics(links["github"])
+
+    # A. Author Historical Hit Rate (conservative if data missing)
+    core_authors = paper.authors[:3]
+    relevant_last4y = 0
+    high_impact_last4y = 0
+    hit_rate = 0.0
+    a_score = 0
+    a_reason = "作者历史命中数据缺失，按保守分处理。"
+
+    # B. Reproducibility & Artifact Completeness
+    low = normalize(text_blob)
+    has_repo = bool(links["github"])
+    has_instr = any(k in low for k in ["installation", "usage", "train", "inference", "quick start", "运行", "训练", "推理"])
+    has_weights = any(k in low for k in ["pretrained", "checkpoint", "weights", "模型权重"])
+    has_dataset_or_eval = any(k in low for k in ["dataset", "benchmark", "evaluation script", "数据集", "评测脚本"])
+    has_license = any(k in low for k in ["license", "mit", "apache-2.0", "bsd"])
+    has_env = any(k in low for k in ["requirements.txt", "environment.yml", "dockerfile", "conda", "poetry"])
+    b_score = min(25, (8 if has_repo else 0) + (4 if has_instr else 0) + (5 if has_weights else 0) + (4 if has_dataset_or_eval else 0) + (2 if has_license else 0) + (2 if has_env else 0))
+
+    # C. Early Community Response
+    c_score = 0
+    if github_stars >= 1000:
+        c_score += 12
+    elif github_stars >= 300:
+        c_score += 9
+    elif github_stars >= 100:
+        c_score += 6
+    elif github_stars >= 30:
+        c_score += 3
+    elif github_stars >= 1:
+        c_score += 1
+    if github_forks >= 100:
+        c_score += 4
+    elif github_forks >= 30:
+        c_score += 3
+    elif github_forks >= 10:
+        c_score += 2
+    elif github_forks >= 1:
+        c_score += 1
+    pwc_listed = bool(links["paperswithcode"])
+    hf_signal = bool(links["huggingface"])
+    c_score += 2 if pwc_listed else 0
+    c_score += 2 if hf_signal else 0
+    c_score = min(20, c_score)
+
+    # D. Experimental Strength
+    strong_baselines = any(k in low for k in ["baseline", "sota", "state-of-the-art", "对比方法", "基线"])
+    ablation = any(k in low for k in ["ablation", "消融"])
+    multi_task = any(k in low for k in ["multi-task", "multiple datasets", "environments", "多个数据集", "多任务", "多环境"])
+    efficiency = any(k in low for k in ["latency", "flops", "memory", "throughput", "training cost", "inference cost", "时延", "吞吐", "显存", "成本"])
+    limitations = any(k in low for k in ["limitation", "future work", "局限", "未来工作"])
+    benchmark_tables = any(k in low for k in ["table", "benchmark", "leaderboard", "表", "基准"])
+    d_score = min(15, (4 if strong_baselines else 0) + (3 if ablation else 0) + (3 if multi_task else 0) + (2 if efficiency else 0) + (1 if limitations else 0) + (2 if benchmark_tables else 0))
+
+    # E. Novelty & Problem Importance
+    problem_clarity = 3 if any(k in low for k in ["we address", "problem", "challenge", "我们解决", "问题", "挑战"]) else 1
+    contribution_specificity = 3 if any(k in low for k in ["we propose", "introduce", "our method", "提出", "方法", "框架"]) else 1
+    difference_prior = 2 if any(k in low for k in ["compared with", "different from", "prior work", "相比", "不同于", "已有方法"]) else 1
+    frontier = 2 if any(k in low for k in ["world model", "coding agent", "foundation model", "multimodal", "robot", "physical ai", "data infra", "世界模型", "具身", "机器人"]) else 1
+    e_score = min(10, problem_clarity + contribution_specificity + difference_prior + frontier)
+
+    total = int(max(0, min(100, a_score + b_score + c_score + d_score + e_score)))
+
+    # confidence
+    confidence = 1.0
+    if relevant_last4y == 0:
+        confidence -= 0.15
+    if not has_repo:
+        confidence -= 0.15
+    if not (links["github"] or links["paperswithcode"] or links["huggingface"]):
+        confidence -= 0.10
+    if not has_readable_fulltext(fulltext_context):
+        confidence -= 0.10
+    confidence = max(0.3, round(confidence, 2))
+
+    days_since = max(0, (now_beijing().date() - paper.published.astimezone(BEIJING_TZ).date()).days)
+    arxiv_id = _parse_arxiv_id(paper.url)
+    availability = {
+        "arxiv": "arxiv" in (paper.source or "").lower() or "arxiv.org" in (paper.url or "").lower(),
+        "semantic_scholar": "semanticscholar" in (paper.source or "").lower(),
+        "openalex": "openalex" in (paper.source or "").lower(),
+        "papers_with_code": bool(links["paperswithcode"]),
+        "github": bool(links["github"]),
+        "huggingface": bool(links["huggingface"]),
+    }
+
+    missing = [k for k, v in availability.items() if not v]
+    tier = "A" if total >= 85 else "B" if total >= 70 else "C" if total >= 50 else "D"
+    label = {"A": "very strong early signal", "B": "promising", "C": "mixed evidence", "D": "weak/insufficient"}[tier]
+
+    return {
+      "paper": {
+        "title": paper.title,
+        "arxiv_id": arxiv_id,
+        "arxiv_url": f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else "",
+        "published_date": paper.published.astimezone(BEIJING_TZ).strftime("%Y-%m-%d"),
+        "days_since_release": days_since,
+        "primary_category": category,
+        "authors": core_authors,
+      },
+      "data_availability": availability,
+      "scores": {
+        "author_historical_hit_rate": {
+          "score": a_score, "max_score": 30,
+          "raw_metrics": {
+            "core_authors": core_authors,
+            "relevant_papers_last_4y": relevant_last4y,
+            "high_impact_papers_last_4y": high_impact_last4y,
+            "hit_rate": hit_rate,
+          },
+          "reasoning": a_reason,
+        },
+        "reproducibility_artifacts": {
+          "score": b_score, "max_score": 25,
+          "raw_metrics": {
+            "code_repo": has_repo,
+            "instructions": has_instr,
+            "weights": has_weights,
+            "dataset_or_eval_scripts": has_dataset_or_eval,
+            "license": has_license,
+            "env_files": has_env,
+          },
+          "reasoning": "依据代码/权重/说明文档等可复现资产打分。",
+        },
+        "early_community_response": {
+          "score": c_score, "max_score": 20,
+          "raw_metrics": {
+            "github_stars": github_stars,
+            "github_forks": github_forks,
+            "papers_with_code_listed": pwc_listed,
+            "huggingface_signal": hf_signal,
+          },
+          "reasoning": "依据早期社区可观测信号打分；新发布论文不做过度解读。",
+        },
+        "experimental_strength": {
+          "score": d_score, "max_score": 15,
+          "raw_metrics": {
+            "strong_baselines": strong_baselines,
+            "ablation": ablation,
+            "multi_dataset_or_multi_task": multi_task,
+            "efficiency_metrics": efficiency,
+            "limitations": limitations,
+            "benchmark_tables": benchmark_tables,
+          },
+          "reasoning": "依据正文中的实验设计与报告完整度打分。",
+        },
+        "novelty_and_problem_importance": {
+          "score": e_score, "max_score": 10,
+          "raw_metrics": {
+            "problem_clarity": problem_clarity,
+            "contribution_specificity": contribution_specificity,
+            "difference_from_prior_work": difference_prior,
+            "frontier_relevance": frontier,
+          },
+          "reasoning": "依据问题清晰度、贡献具体性与前沿相关性打分。",
+        },
+        "total_score": total,
+        "confidence": confidence,
+      },
+      "verdict": {
+        "tier": tier,
+        "label": label,
+        "summary": "早期质量评分用于快速优先级排序，需结合后续复现实验继续验证。",
+        "main_strengths": ["结构化实验信号", "可复现资产信号"],
+        "main_risks": ["作者历史数据缺失", "早期社区信号波动"],
+      },
+      "implementation_notes": {
+        "missing_data": missing,
+        "assumptions": ["仅使用可程序化访问数据源", "缺失字段按保守分处理"],
+        "recommended_followup_checks": ["补全作者历史论文画像", "人工复核关键实验表格"],
+      }
+    }
 
 
 def build_day_summary(papers: List[Paper]) -> str:
@@ -764,12 +980,12 @@ def confidence_level(paper: Paper) -> str:
     return "低"
 
 
-def render_paper_block(index: int, item: AnalyzedPaper, parsed: Dict[str, str]) -> List[str]:
+def render_paper_block(index: int, item: AnalyzedPaper, parsed: Dict[str, str], early_score: int) -> List[str]:
     paper = item.paper
     published_bj = paper.published.astimezone(BEIJING_TZ).strftime("%Y-%m-%d %H:%M")
     return [
         "分隔线",
-        f"论文{index}：{paper.title}",
+        f"论文{index}：{paper.title}（Early Quality Score: {early_score}）",
         f"发布时间：{published_bj}（北京时间）",
         f"链接：{paper.url}",
         f"发表机构：{';'.join(paper.institutions[:8]) if paper.institutions else '未披露'}",
@@ -792,7 +1008,7 @@ def build_overview_lines(items: List[AnalyzedPaper]) -> List[str]:
 
     world = [x for x in items if x.category == "World Engine"]
     infra = [x for x in items if x.category == "Data Infra"]
-    top3 = sorted(items, key=lambda x: ranking_score(x.paper), reverse=True)[:3]
+    top3 = sorted(items, key=lambda x: x.early_score, reverse=True)[:3]
     trend_pool = " ".join([normalize(f"{x.paper.title} {x.paper.abstract}") for x in items])
 
     trend_lines: List[str] = []
@@ -910,6 +1126,8 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
 
     analyzed: List[AnalyzedPaper] = []
     parsed_map: Dict[str, Dict[str, str]] = {}
+    score_map: Dict[str, int] = {}
+    score_detail_map: Dict[str, Dict[str, object]] = {}
     skipped_no_fulltext = 0
     for paper in selected:
         category = classify_paper(paper)
@@ -917,10 +1135,14 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
         if not has_readable_fulltext(fulltext_context):
             skipped_no_fulltext += 1
             continue
+        score_json = compute_early_quality_score(paper, category, fulltext_context)
+        early_score = int(((score_json.get("scores") or {}).get("total_score") or 0))
         raw = analyze_paper(client, paper, category, fulltext_context)
         parsed = parse_structured_analysis(raw)
-        analyzed.append(AnalyzedPaper(paper=paper, category=category, analysis_lines=[]))
+        analyzed.append(AnalyzedPaper(paper=paper, category=category, analysis_lines=[], early_score=early_score))
         parsed_map[paper.title] = parsed
+        score_map[paper.title] = early_score
+        score_detail_map[paper.title] = score_json
 
     if not analyzed:
         text = (
@@ -935,6 +1157,7 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
         return cleaned, to_html(cleaned)
 
 
+    analyzed.sort(key=lambda x: x.early_score, reverse=True)
     world_items = [x for x in analyzed if x.category == "World Engine"]
     infra_items = [x for x in analyzed if x.category == "Data Infra"]
 
@@ -947,7 +1170,7 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
             return idx
         blocks.append(f"分类标题：{cat_title}")
         for item in cat_items:
-            blocks.extend(render_paper_block(idx, item, parsed_map[item.paper.title]))
+            blocks.extend(render_paper_block(idx, item, parsed_map[item.paper.title], score_map.get(item.paper.title, 0)))
             idx += 1
         return idx
 

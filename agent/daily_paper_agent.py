@@ -57,12 +57,12 @@ WORLD_STRICT_KEYWORDS = [
 ]
 
 INFRA_STRICT_KEYWORDS = [
-    "data infrastructure", "data infra", "data pipeline", "data ingestion",
-    "stream processing", "batch processing", "etl", "feature store",
-    "data lake", "data lakehouse", "data quality", "data governance",
-    "data orchestration", "knowledge graph infrastructure", "synthetic data generation",
-    "vector database", "data observability", "schema evolution",
-    "数据基础设施", "数据管道", "数据采集", "流处理", "湖仓", "特征库", "数据治理",
+    "robot data pipeline", "embodied data pipeline", "autonomy data engine", "sim2real data",
+    "teleoperation data", "fleet data", "sensor data pipeline", "perception data curation",
+    "multimodal robot dataset", "policy dataset", "trajectory dataset", "feature store for robotics",
+    "lakehouse for autonomy", "data labeling for perception", "data governance for robotics",
+    "physical ai data", "具身智能数据", "机器人数据管道", "自动驾驶数据管道", "感知数据治理",
+    "仿真到现实数据", "遥操作数据", "轨迹数据集", "策略数据集", "车队数据引擎",
 ]
 
 IRRELEVANT_HINT_KEYWORDS = [
@@ -96,6 +96,13 @@ CORE_INFRA_ANCHORS = [
     "stream processing", "batch processing", "etl", "data orchestration", "数据基础设施", "数据管道", "湖仓",
 ]
 
+
+PHYSICAL_AI_CONTEXT_KEYWORDS = [
+    "embodied", "robot", "robotics", "autonomous driving", "self-driving", "carla", "airsim", "gazebo",
+    "sim2real", "policy learning", "navigation", "manipulation", "perception", "lidar", "camera rig",
+    "world model", "world simulator", "digital twin", "具身", "机器人", "自动驾驶", "导航", "操作", "感知", "仿真",
+]
+
 RSS_SOURCES = {
     "Nature": "https://www.nature.com/nature.rss",
     "Science": "https://www.science.org/action/showFeed?type=etoc&feed=rss&jc=science",
@@ -118,6 +125,7 @@ class Paper:
     source: str
     published: dt.datetime
     authors: List[str]
+    institutions: List[str]
     citation_count: int = 0
     influence_score: float = 0.0
 
@@ -223,15 +231,16 @@ def is_domain_relevant(title: str, abstract: str) -> bool:
     world_hit = sum(1 for kw in WORLD_STRICT_KEYWORDS if normalize(kw) in hay)
     infra_hit = sum(1 for kw in INFRA_STRICT_KEYWORDS if normalize(kw) in hay)
     tech_hit = sum(1 for kw in INVESTMENT_TECH_KEYWORDS if normalize(kw) in hay)
+    physical_ai_hit = sum(1 for kw in PHYSICAL_AI_CONTEXT_KEYWORDS if normalize(kw) in hay)
     excluded = any(normalize(kw) in hay for kw in EXCLUDED_NON_TECH_KEYWORDS)
     penalty = sum(1 for kw in IRRELEVANT_HINT_KEYWORDS if normalize(kw) in hay)
 
     if excluded or penalty >= 1:
         return False
-    has_core_anchor = (world_anchor_hit + infra_anchor_hit) >= 1
-    if not has_core_anchor:
-        return False
-    return (world_hit + infra_hit + tech_hit) >= 3
+
+    world_ok = world_anchor_hit >= 1 and (world_hit + tech_hit + physical_ai_hit) >= 3
+    infra_ok = infra_anchor_hit >= 1 and physical_ai_hit >= 1 and (infra_hit + tech_hit) >= 3
+    return world_ok or infra_ok
 
 
 def fetch_arxiv() -> List[Paper]:
@@ -254,6 +263,7 @@ def fetch_arxiv() -> List[Paper]:
                 source="arXiv",
                 published=published,
                 authors=[a.name for a in e.get("authors", [])],
+                institutions=[],
                 citation_count=0,
                 influence_score=0.0,
             )
@@ -291,6 +301,12 @@ def fetch_crossref() -> List[Paper]:
                 for a in item.get("author", [])
                 if f"{a.get('given', '')} {a.get('family', '')}".strip()
             ]
+            institutions = []
+            for a in item.get("author", []):
+                for aff in a.get("affiliation", []) or []:
+                    name = (aff.get("name") or "").strip()
+                    if name:
+                        institutions.append(name)
             papers.append(
                 Paper(
                     title=title,
@@ -299,6 +315,7 @@ def fetch_crossref() -> List[Paper]:
                     source=f"Crossref/{venue}",
                     published=published,
                     authors=authors,
+                    institutions=list(dict.fromkeys(institutions))[:8],
                     citation_count=int(item.get("is-referenced-by-count") or 0),
                     influence_score=0.0,
                 )
@@ -343,6 +360,12 @@ def fetch_openalex() -> List[Paper]:
                 for a in r.get("authorships", [])
                 if (a.get("author") or {}).get("display_name")
             ]
+            institutions = []
+            for a in r.get("authorships", []):
+                for inst in a.get("institutions", []) or []:
+                    nm = (inst.get("display_name") or "").strip()
+                    if nm:
+                        institutions.append(nm)
             papers.append(
                 Paper(
                     title=r.get("title") or "",
@@ -351,6 +374,7 @@ def fetch_openalex() -> List[Paper]:
                     source="OpenAlex",
                     published=published,
                     authors=authors,
+                    institutions=list(dict.fromkeys(institutions))[:8],
                     citation_count=int(r.get("cited_by_count") or 0),
                     influence_score=float(r.get("cited_by_count") or 0) / 50.0,
                 )
@@ -391,6 +415,7 @@ def fetch_semantic_scholar() -> List[Paper]:
                     source=f"SemanticScholar/{venue}",
                     published=published,
                     authors=[a.get("name", "") for a in p.get("authors", []) if a.get("name")],
+                    institutions=list(dict.fromkeys([aff.strip() for a in p.get("authors", []) for aff in (a.get("affiliations") or []) if isinstance(aff, str) and aff.strip()]))[:8],
                     citation_count=int(p.get("citationCount") or 0),
                     influence_score=float(p.get("influentialCitationCount") or 0),
                 )
@@ -427,6 +452,7 @@ def fetch_rss_journals() -> List[Paper]:
                     source=f"RSS/{source_name}",
                     published=published,
                     authors=authors,
+                    institutions=[],
                     citation_count=0,
                     influence_score=0.0,
                 )
@@ -521,18 +547,18 @@ def classify_paper(paper: Paper) -> str:
         "embodied", "robot simulation", "世界引擎", "世界模型", "仿真引擎",
     ]
     infra_keywords = [
-        "data infrastructure", "data infra", "data pipeline", "data ingestion", "etl",
-        "stream processing", "batch processing", "feature store", "data lakehouse",
-        "data governance", "data observability", "vector database", "synthetic data generation",
-        "数据基础设施", "数据管道", "湖仓", "数据治理", "合成数据",
+        "robot data pipeline", "embodied data pipeline", "autonomy data engine", "sim2real data",
+        "teleoperation data", "fleet data", "sensor data pipeline", "perception data curation",
+        "multimodal robot dataset", "trajectory dataset", "具身智能数据", "机器人数据管道", "自动驾驶数据管道",
     ]
+    physical_ai_keywords = ["robot", "embodied", "autonomous driving", "self-driving", "carla", "airsim", "gazebo", "具身", "机器人", "自动驾驶", "感知"]
     world_score = sum(1 for k in world_keywords if normalize(k) in txt)
     infra_score = sum(1 for k in infra_keywords if normalize(k) in txt)
+    physical_score = sum(1 for k in physical_ai_keywords if normalize(k) in txt)
 
-    if infra_score > world_score:
+    if infra_score >= world_score and infra_score > 0 and physical_score > 0:
         return "Data Infra"
-    if world_score > infra_score:
-        return "World Engine"
+    return "World Engine"
 
     # tie-break: infra-first when data stack terms appear
     if any(normalize(k) in txt for k in ["pipeline", "ingestion", "etl", "lakehouse", "feature store", "数据管道", "湖仓"]):
@@ -637,6 +663,8 @@ def build_prompt(paper: Paper, category: str, fulltext_context: str) -> str:
 
         论文分类：{category}
         标题：{paper.title}
+        作者：{", ".join(paper.authors[:10]) if paper.authors else "未披露"}
+        发表机构：{", ".join(paper.institutions[:8]) if paper.institutions else "未披露"}
         摘要：{paper.abstract[:7000]}
         正文：{fulltext_context[:18000]}
         """
@@ -744,6 +772,7 @@ def render_paper_block(index: int, item: AnalyzedPaper, parsed: Dict[str, str]) 
         f"论文{index}：{paper.title}",
         f"发布时间：{published_bj}（北京时间）",
         f"链接：{paper.url}",
+        f"发表机构：{';'.join(paper.institutions[:8]) if paper.institutions else '未披露'}",
         f"一句话核心：{parsed['一句话核心']}",
         f"论文背景：背景&创新点：{parsed['论文背景']}",
         f"方法与结果：{parsed['方法与结果']}",

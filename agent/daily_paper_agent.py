@@ -127,6 +127,7 @@ class Paper:
     published: dt.datetime
     authors: List[str]
     institutions: List[str]
+    author_orgs: List[str]
     citation_count: int = 0
     influence_score: float = 0.0
 
@@ -150,6 +151,29 @@ def now_beijing() -> dt.datetime:
 def normalize(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").lower()).strip()
 
+
+
+
+def clean_org_name(name: str) -> str:
+    text = re.sub(r"\s+", " ", (name or "").strip())
+    text = re.sub(r"^[,;:\-]+|[,;:\-]+$", "", text)
+    return text
+
+
+def build_author_orgs(author_pairs: List[Tuple[str, str]]) -> List[str]:
+    out: List[str] = []
+    seen = set()
+    for author, org in author_pairs:
+        author_name = re.sub(r"\s+", " ", (author or "").strip())
+        org_name = clean_org_name(org)
+        if not author_name:
+            continue
+        label = f"{author_name}（{org_name}）" if org_name else author_name
+        key = normalize(label)
+        if key and key not in seen:
+            seen.add(key)
+            out.append(label)
+    return out[:8]
 
 def parse_iso_datetime(value: Optional[str]) -> Optional[dt.datetime]:
     if not value:
@@ -266,6 +290,7 @@ def fetch_arxiv() -> List[Paper]:
                 published=published,
                 authors=[a.name for a in e.get("authors", [])],
                 institutions=[],
+                author_orgs=[],
                 citation_count=0,
                 influence_score=0.0,
             )
@@ -304,11 +329,14 @@ def fetch_crossref() -> List[Paper]:
                 if f"{a.get('given', '')} {a.get('family', '')}".strip()
             ]
             institutions = []
+            author_org_pairs: List[Tuple[str, str]] = []
             for a in item.get("author", []):
-                for aff in a.get("affiliation", []) or []:
-                    name = (aff.get("name") or "").strip()
-                    if name:
-                        institutions.append(name)
+                author_name = f"{a.get('given', '')} {a.get('family', '')}".strip()
+                aff_names = [clean_org_name((aff.get("name") or "")) for aff in (a.get("affiliation", []) or [])]
+                aff_names = [x for x in aff_names if x]
+                if aff_names:
+                    institutions.extend(aff_names)
+                author_org_pairs.append((author_name, aff_names[0] if aff_names else ""))
             papers.append(
                 Paper(
                     title=title,
@@ -318,6 +346,7 @@ def fetch_crossref() -> List[Paper]:
                     published=published,
                     authors=authors,
                     institutions=list(dict.fromkeys(institutions))[:8],
+                    author_orgs=build_author_orgs(author_org_pairs),
                     citation_count=int(item.get("is-referenced-by-count") or 0),
                     influence_score=0.0,
                 )
@@ -363,11 +392,17 @@ def fetch_openalex() -> List[Paper]:
                 if (a.get("author") or {}).get("display_name")
             ]
             institutions = []
+            author_org_pairs: List[Tuple[str, str]] = []
             for a in r.get("authorships", []):
-                for inst in a.get("institutions", []) or []:
-                    nm = (inst.get("display_name") or "").strip()
-                    if nm:
-                        institutions.append(nm)
+                author_name = (a.get("author") or {}).get("display_name", "").strip()
+                inst_names = [clean_org_name((inst.get("display_name") or "")) for inst in (a.get("institutions", []) or [])]
+                inst_names = [x for x in inst_names if x]
+                raw_aff = [clean_org_name(x) for x in (a.get("raw_affiliation_strings") or []) if isinstance(x, str)]
+                raw_aff = [x for x in raw_aff if x]
+                merged = inst_names or raw_aff
+                if merged:
+                    institutions.extend(merged)
+                author_org_pairs.append((author_name, merged[0] if merged else ""))
             papers.append(
                 Paper(
                     title=r.get("title") or "",
@@ -377,6 +412,7 @@ def fetch_openalex() -> List[Paper]:
                     published=published,
                     authors=authors,
                     institutions=list(dict.fromkeys(institutions))[:8],
+                    author_orgs=build_author_orgs(author_org_pairs),
                     citation_count=int(r.get("cited_by_count") or 0),
                     influence_score=float(r.get("cited_by_count") or 0) / 50.0,
                 )
@@ -395,7 +431,7 @@ def fetch_semantic_scholar() -> List[Paper]:
             "query": term,
             "limit": 25,
             "offset": 0,
-            "fields": "title,abstract,url,authors,publicationDate,publicationVenue,citationCount,influentialCitationCount",
+            "fields": "title,abstract,url,authors.name,authors.affiliations,authors.authorId,publicationDate,publicationVenue,citationCount,influentialCitationCount",
             "year": str(now_beijing().year),
         }
         resp = requests.get(base, params=params, timeout=30, headers=REQUEST_HEADERS)
@@ -409,6 +445,17 @@ def fetch_semantic_scholar() -> List[Paper]:
             if not (from_date <= published.astimezone(BEIJING_TZ).strftime("%Y-%m-%d") <= to_date):
                 continue
             venue = (p.get("publicationVenue") or {}).get("name") or "SemanticScholar"
+            author_list = [a.get("name", "") for a in p.get("authors", []) if a.get("name")]
+            author_org_pairs: List[Tuple[str, str]] = []
+            institutions: List[str] = []
+            for a in p.get("authors", []):
+                author_name = (a.get("name") or "").strip()
+                affs = [clean_org_name(aff) for aff in (a.get("affiliations") or []) if isinstance(aff, str)]
+                affs = [x for x in affs if x]
+                if affs:
+                    institutions.extend(affs)
+                author_org_pairs.append((author_name, affs[0] if affs else ""))
+
             papers.append(
                 Paper(
                     title=p.get("title") or "",
@@ -416,8 +463,9 @@ def fetch_semantic_scholar() -> List[Paper]:
                     abstract=p.get("abstract") or "",
                     source=f"SemanticScholar/{venue}",
                     published=published,
-                    authors=[a.get("name", "") for a in p.get("authors", []) if a.get("name")],
-                    institutions=list(dict.fromkeys([aff.strip() for a in p.get("authors", []) for aff in (a.get("affiliations") or []) if isinstance(aff, str) and aff.strip()]))[:8],
+                    authors=author_list,
+                    institutions=list(dict.fromkeys(institutions))[:8],
+                    author_orgs=build_author_orgs(author_org_pairs),
                     citation_count=int(p.get("citationCount") or 0),
                     influence_score=float(p.get("influentialCitationCount") or 0),
                 )
@@ -455,6 +503,7 @@ def fetch_rss_journals() -> List[Paper]:
                     published=published,
                     authors=authors,
                     institutions=[],
+                    author_orgs=[],
                     citation_count=0,
                     influence_score=0.0,
                 )
@@ -984,6 +1033,8 @@ def confidence_level(paper: Paper) -> str:
 
 
 def format_author_orgs(paper: Paper) -> str:
+    if paper.author_orgs:
+        return "，".join(paper.author_orgs[:6])
     authors = paper.authors[:6] if paper.authors else []
     insts = paper.institutions[:6] if paper.institutions else []
     if authors and insts:

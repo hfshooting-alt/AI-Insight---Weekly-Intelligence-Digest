@@ -983,12 +983,19 @@ def confidence_level(paper: Paper) -> str:
 
 
 def importance_level(score: int) -> str:
+    # non-linear buckets to better separate low-score papers
     if score >= 85:
         return "高"
     if score >= 70:
         return "较高"
-    if score >= 50:
+    if score >= 55:
         return "中"
+    if score >= 40:
+        return "关注"
+    if score >= 25:
+        return "跟踪"
+    if score >= 12:
+        return "观察+"
     return "观察"
 
 

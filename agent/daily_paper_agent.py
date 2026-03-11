@@ -982,22 +982,6 @@ def confidence_level(paper: Paper) -> str:
 
 
 
-def importance_level(score: int) -> str:
-    # non-linear buckets to better separate low-score papers
-    if score >= 85:
-        return "高"
-    if score >= 70:
-        return "较高"
-    if score >= 55:
-        return "中"
-    if score >= 40:
-        return "关注"
-    if score >= 25:
-        return "跟踪"
-    if score >= 12:
-        return "观察+"
-    return "观察"
-
 
 def format_author_orgs(paper: Paper) -> str:
     authors = paper.authors[:6] if paper.authors else []
@@ -1011,14 +995,15 @@ def format_author_orgs(paper: Paper) -> str:
     return "未披露"
 
 
-def render_paper_block(index: int, item: AnalyzedPaper, parsed: Dict[str, str]) -> List[str]:
+def render_paper_block(index: int, item: AnalyzedPaper, parsed: Dict[str, str], rank_pos: int) -> List[str]:
     paper = item.paper
     published_bj = paper.published.astimezone(BEIJING_TZ).strftime("%Y-%m-%d %H:%M")
     return [
         "分隔线",
-        f"论文{index}：{paper.title}（重要程度：{importance_level(item.early_score)}）",
+        f"论文{index}：{paper.title}",
         f"发布时间：{published_bj}（北京时间）",
         f"链接：{paper.url}",
+        f"重要性排名：第{rank_pos}名",
         f"作者：{format_author_orgs(paper)}",
         f"一句话核心：{parsed['一句话核心']}",
         f"论文背景：背景&创新点：{parsed['论文背景']}",
@@ -1187,6 +1172,7 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
 
 
     analyzed.sort(key=lambda x: x.early_score, reverse=True)
+    rank_map = {it.paper.title: i + 1 for i, it in enumerate(analyzed)}
     world_items = [x for x in analyzed if x.category == "World Engine"]
     infra_items = [x for x in analyzed if x.category == "Data Infra"]
 
@@ -1199,7 +1185,7 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
             return idx
         blocks.append(f"分类标题：{cat_title}")
         for item in cat_items:
-            blocks.extend(render_paper_block(idx, item, parsed_map[item.paper.title]))
+            blocks.extend(render_paper_block(idx, item, parsed_map[item.paper.title], rank_map.get(item.paper.title, idx)))
             idx += 1
         return idx
 

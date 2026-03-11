@@ -980,15 +980,39 @@ def confidence_level(paper: Paper) -> str:
     return "低"
 
 
-def render_paper_block(index: int, item: AnalyzedPaper, parsed: Dict[str, str], early_score: int) -> List[str]:
+
+
+def importance_level(score: int) -> str:
+    if score >= 85:
+        return "高"
+    if score >= 70:
+        return "较高"
+    if score >= 50:
+        return "中"
+    return "观察"
+
+
+def format_author_orgs(paper: Paper) -> str:
+    authors = paper.authors[:6] if paper.authors else []
+    insts = paper.institutions[:6] if paper.institutions else []
+    if authors and insts:
+        return f"{', '.join(authors)}（{';'.join(insts)}）"
+    if authors:
+        return ", ".join(authors)
+    if insts:
+        return "（" + ";".join(insts) + "）"
+    return "未披露"
+
+
+def render_paper_block(index: int, item: AnalyzedPaper, parsed: Dict[str, str]) -> List[str]:
     paper = item.paper
     published_bj = paper.published.astimezone(BEIJING_TZ).strftime("%Y-%m-%d %H:%M")
     return [
         "分隔线",
-        f"论文{index}：{paper.title}（Early Quality Score: {early_score}）",
+        f"论文{index}：{paper.title}（重要程度：{importance_level(item.early_score)}）",
         f"发布时间：{published_bj}（北京时间）",
         f"链接：{paper.url}",
-        f"发表机构：{';'.join(paper.institutions[:8]) if paper.institutions else '未披露'}",
+        f"作者：{format_author_orgs(paper)}",
         f"一句话核心：{parsed['一句话核心']}",
         f"论文背景：背景&创新点：{parsed['论文背景']}",
         f"方法与结果：{parsed['方法与结果']}",
@@ -1126,7 +1150,6 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
 
     analyzed: List[AnalyzedPaper] = []
     parsed_map: Dict[str, Dict[str, str]] = {}
-    score_map: Dict[str, int] = {}
     score_detail_map: Dict[str, Dict[str, object]] = {}
     skipped_no_fulltext = 0
     for paper in selected:
@@ -1141,7 +1164,6 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
         parsed = parse_structured_analysis(raw)
         analyzed.append(AnalyzedPaper(paper=paper, category=category, analysis_lines=[], early_score=early_score))
         parsed_map[paper.title] = parsed
-        score_map[paper.title] = early_score
         score_detail_map[paper.title] = score_json
 
     if not analyzed:
@@ -1170,7 +1192,7 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
             return idx
         blocks.append(f"分类标题：{cat_title}")
         for item in cat_items:
-            blocks.extend(render_paper_block(idx, item, parsed_map[item.paper.title], score_map.get(item.paper.title, 0)))
+            blocks.extend(render_paper_block(idx, item, parsed_map[item.paper.title]))
             idx += 1
         return idx
 

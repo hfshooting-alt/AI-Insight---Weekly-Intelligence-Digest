@@ -1242,7 +1242,7 @@ def to_html(report_text: str) -> str:
                 f"<h2 style='font-size:34px;font-weight:850;line-height:1.25;margin:24px 0 12px;color:#0b132b;letter-spacing:0.1px'>{html.escape(cat)}</h2>"
             )
             html_lines.append("<hr style='border:none;border-top:1px solid #d7deea;margin:0 0 16px 0' />")
-        elif re.match(r"^论文\d+：", striped):
+        elif re.match(r"^论文\d+｜", striped):
             close_paper_card()
             in_paper = True
             html_lines.append(
@@ -1298,15 +1298,20 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
     parsed_map: Dict[str, Dict[str, str]] = {}
     score_detail_map: Dict[str, Dict[str, object]] = {}
     skipped_no_fulltext = 0
+    abstract_fallback_used = 0
     for paper in selected:
         category = classify_paper(paper)
         fulltext_context = fetch_fulltext_context(paper)
+        analysis_context = fulltext_context
         if not has_readable_fulltext(fulltext_context):
             skipped_no_fulltext += 1
-            continue
-        score_json = compute_early_quality_score(paper, category, fulltext_context)
+            analysis_context = (paper.abstract or "").strip()
+            if not analysis_context:
+                continue
+            abstract_fallback_used += 1
+        score_json = compute_early_quality_score(paper, category, analysis_context)
         early_score = int(((score_json.get("scores") or {}).get("total_score") or 0))
-        raw = analyze_paper(client, paper, category, fulltext_context)
+        raw = analyze_paper(client, paper, category, analysis_context)
         parsed = parse_structured_analysis(raw)
         analyzed.append(AnalyzedPaper(paper=paper, category=category, analysis_lines=[], early_score=early_score, discussion_score=float(getattr(paper, "_social_score", 0.0))))
         parsed_map[paper.title] = parsed
@@ -1320,7 +1325,7 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
             "今日总篇数：0\n"
             "Top 3（按X/Reddit/GitHub讨论量）：无\n"
             "当日趋势：无\n"
-            f"总体判断：候选论文正文抓取不足（跳过{skipped_no_fulltext}篇），未生成正文级解读。"
+            f"总体判断：候选论文正文抓取不足（正文不足{skipped_no_fulltext}篇），且摘要信息也不足，未生成解读。"
         )
         cleaned = clean_symbols(text)
         return cleaned, to_html(cleaned)
@@ -1343,6 +1348,33 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
 
     text = clean_symbols("\n".join(blocks))
     return text, to_html(text)
+
+
+def build_official_monitor_section() -> Tuple[str, str]:
+    if os.environ.get("OFFICIAL_MONITOR_ENABLED", "1").strip() in {"0", "false", "False"}:
+        return "", ""
+
+    try:
+        from agent.official_monitor.pipeline import run_pipeline
+        from agent.official_monitor.render import render_markdown, render_html_fragment
+
+        lookback = int(os.environ.get("OFFICIAL_MONITOR_LOOKBACK_DAYS", "7"))
+        max_per_source = int(os.environ.get("OFFICIAL_MONITOR_MAX_PER_SOURCE", "20"))
+        summary, _, clusters = run_pipeline(lookback_days=lookback, max_articles_per_source=max_per_source)
+        if not clusters:
+            text = "AI大厂与投资机构官方动态\n过去7天未检索到可用的官方主题动态。"
+            html = "<section style='max-width:1040px;margin:22px auto 0;padding:0 18px 26px;'><h2 style='font-size:28px;color:#ecf3ff;margin:0 0 10px'>AI大厂与投资机构官方动态</h2><p style='font-size:16px;color:#dbe7ff'>过去7天未检索到可用的官方主题动态。</p></section>"
+            return text, html
+
+        md = render_markdown(summary, clusters)
+        html_fragment = render_html_fragment(summary, clusters)
+        text = "AI大厂与投资机构官方动态\n" + md
+        return text, html_fragment
+    except Exception as exc:
+        warn = f"AI大厂与投资机构官方动态\n该板块本次生成失败：{exc}"
+        warn_html = f"<section style='max-width:1040px;margin:22px auto 0;padding:0 18px 26px;'><h2 style='font-size:28px;color:#ecf3ff;margin:0 0 10px'>AI大厂与投资机构官方动态</h2><p style='font-size:16px;color:#fda4af'>该板块本次生成失败：{html.escape(str(exc))}</p></section>"
+        return warn, warn_html
+
 
 
 def send_email(subject: str, text_body: str, html_body: str) -> None:
@@ -1369,6 +1401,11 @@ def send_email(subject: str, text_body: str, html_body: str) -> None:
 def run_once() -> None:
     client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
     text_digest, html_digest = build_daily_digest(client)
+    official_text, official_html = build_official_monitor_section()
+    if official_text:
+        text_digest = text_digest + "\n\n" + official_text
+    if official_html:
+        html_digest = html_digest.replace("</body></html>", official_html + "</body></html>")
     date_str = dt.datetime.now().strftime("%Y-%m-%d")
     send_email(
         subject=f"[{date_str}] World Engine 与 Data Infra 每日论文简报",

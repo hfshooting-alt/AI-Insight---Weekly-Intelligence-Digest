@@ -179,6 +179,13 @@ def render_markdown(run_summary: RunSummary, clusters: List[TopicCluster]) -> st
     return "\n".join(lines).strip() + "\n"
 
 
+def render_html_fragment(run_summary: RunSummary, clusters: List[TopicCluster]) -> str:
+    hero = _report_hero(run_summary, clusters)
+    summary = _summary_stats(run_summary, clusters)
+    sections = "".join([_report_section(i, c) for i, c in enumerate(clusters, start=1)])
+    return f"<section class='embedded-weekly-report' style='margin-top:26px'>{hero}{summary}{sections}</section>"
+
+
 def render_html(run_summary: RunSummary, clusters: List[TopicCluster]) -> str:
     hero = _report_hero(run_summary, clusters)
     summary = _summary_stats(run_summary, clusters)

@@ -199,3 +199,28 @@ Agent 现在采用以下策略：
 
 - 顶部主标题直接显示为“World Engine 与 Data Infra 论文日报”，不再显示“日报标题”这四个字。
 - 在“今日发布概览”后新增“今日导读”，自动根据当天论文生成一段总领性文字，帮助读者快速了解当日研究新动向。
+
+## 官方信源监控与事件聚类模块（新增）
+
+已新增 `agent/official_monitor` 生产化模块，能力包括：
+- 仅基于官方信源白名单抓取（AI公司/投资机构）
+- 滚动 7 天时间窗过滤
+- 结构化抽取与三层去重（canonical/title/content hash）
+- 事件/主题聚类（按事件而非按来源）
+- 输出机器可读 JSON + 中文 Markdown 周报
+- 每篇文章摘要限 300 字，并带标准来源格式：`[@机构名（原文链接）](url)`
+
+快速示例（离线样本数据）：
+```bash
+python -m agent.official_monitor.main --sample \
+  --json-out agent/official_monitor_sample.json \
+  --md-out agent/official_monitor_sample.md
+```
+
+在线运行（真实抓取）：
+```bash
+python -m agent.official_monitor.main \
+  --lookback-days 7 \
+  --json-out agent/official_monitor_output.json \
+  --md-out agent/official_monitor_report.md
+```

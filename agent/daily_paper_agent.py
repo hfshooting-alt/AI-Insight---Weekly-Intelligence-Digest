@@ -1154,13 +1154,13 @@ def format_author_orgs(paper: Paper) -> str:
 
 def render_paper_block(index: int, item: AnalyzedPaper, parsed: Dict[str, str], rank_pos: int) -> List[str]:
     paper = item.paper
+    domain_tag = "世界引擎" if item.category == "World Engine" else "具身数据Infra"
     published_bj = paper.published.astimezone(BEIJING_TZ).strftime("%Y-%m-%d %H:%M")
     return [
         "分隔线",
-        f"论文{index}：{paper.title}",
+        f"论文{index}｜{domain_tag}：{paper.title}",
         f"发布时间：{published_bj}（北京时间）",
         f"链接：{paper.url}",
-        f"讨论热度排名：第{rank_pos}名",
         f"作者：{format_author_orgs(paper)}",
         f"论文想解决什么问题、该问题为什么重要：{parsed['论文想解决什么问题、该问题为什么重要']}",
         f"论文的核心方法是什么、和以前相比如何创新：{parsed['论文的核心方法是什么、和以前相比如何创新']}",
@@ -1203,8 +1203,8 @@ def build_overview_lines(items: List[AnalyzedPaper]) -> List[str]:
 def to_html(report_text: str) -> str:
     lines = report_text.splitlines()
     html_lines = [
-        "<html><body style='font-family:Inter,Segoe UI,Arial,Helvetica,sans-serif;line-height:1.7;color:#0f172a;background:#f5f7fb;'>",
-        "<div style='max-width:980px;margin:0 auto;padding:20px 18px;'>",
+        "<html><body style='font-family:Inter,Segoe UI,PingFang SC,Arial,Helvetica,sans-serif;line-height:1.78;color:#dbe7ff;background:radial-gradient(1200px 500px at 10% -10%,#1f3c88 0%,transparent 45%),radial-gradient(900px 400px at 90% -20%,#0ea5e9 0%,transparent 42%),#0b1220;'>",
+        "<div style='max-width:1040px;margin:0 auto;padding:24px 18px 36px;'>",
     ]
     in_paper = False
 
@@ -1246,24 +1246,24 @@ def to_html(report_text: str) -> str:
             close_paper_card()
             in_paper = True
             html_lines.append(
-                "<div style='border-left:4px solid #3b82f6;background:#ffffff;padding:16px 16px 14px;margin:14px 0 18px;border-radius:10px;box-shadow:0 1px 2px rgba(15,23,42,0.06);'>"
+                "<div style='border:1px solid rgba(148,163,184,.26);background:linear-gradient(180deg,rgba(15,23,42,.92),rgba(15,23,42,.78));padding:18px 18px 16px;margin:14px 0 20px;border-radius:14px;box-shadow:0 8px 26px rgba(2,8,23,.36);backdrop-filter: blur(2px);'>"
             )
             html_lines.append(
-                f"<h3 style='font-size:24px;font-weight:800;line-height:1.35;margin:0 0 10px;color:#1f2937'>{html.escape(striped)}</h3>"
+                f"<h3 style='font-size:24px;font-weight:800;line-height:1.35;margin:0 0 10px;color:#ecf3ff'>{html.escape(striped)}</h3>"
             )
         elif striped.startswith("分隔线"):
             close_paper_card()
-            html_lines.append("<hr style='border:none;border-top:1px solid #d7deea;margin:18px 0' />")
+            html_lines.append("<hr style='border:none;border-top:1px solid rgba(148,163,184,.28);margin:18px 0' />")
         elif striped.startswith("论文想解决什么问题、该问题为什么重要：") or striped.startswith("论文的核心方法是什么、和以前相比如何创新：") or striped.startswith("论文的核心结论：") or striped.startswith("论文的增量价值是什么、会带来什么影响：") or striped.startswith("论文的局限性和不确定性、没有解决什么问题："):
             title, content = striped.split("：", 1)
             html_lines.append(
-                f"<p style='margin:14px 0 6px;font-size:20px;font-weight:800;line-height:1.35;color:#0f172a'>{html.escape(title)}</p>"
+                f"<p style='margin:14px 0 6px;font-size:19px;font-weight:800;line-height:1.35;color:#8ed6ff'>{html.escape(title)}</p>"
             )
             html_lines.append(
-                f"<p style='margin:0 0 10px;font-size:17px;line-height:1.9;color:#1f2937'>{html.escape(content)}</p>"
+                f"<p style='margin:0 0 11px;font-size:17px;line-height:1.95;color:#dbe7ff'>{html.escape(content)}</p>"
             )
         else:
-            html_lines.append(f"<p style='margin:8px 0;font-size:17px;line-height:1.85'>{html.escape(striped)}</p>")
+            html_lines.append(f"<p style='margin:8px 0;font-size:17px;line-height:1.9;color:#dbe7ff'>{html.escape(striped)}</p>")
 
     close_paper_card()
     html_lines.append("</div></body></html>")

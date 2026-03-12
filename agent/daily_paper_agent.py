@@ -1154,11 +1154,11 @@ def format_author_orgs(paper: Paper) -> str:
 
 def render_paper_block(index: int, item: AnalyzedPaper, parsed: Dict[str, str], rank_pos: int) -> List[str]:
     paper = item.paper
-    domain_tag = "世界引擎" if item.category == "World Engine" else "具身数据Infra"
+    domain_tag = "世界模型 / 仿真系统" if item.category == "World Engine" else "数据基础设施 / 数据工程"
     published_bj = paper.published.astimezone(BEIJING_TZ).strftime("%Y-%m-%d %H:%M")
     return [
         "分隔线",
-        f"论文{index}｜{domain_tag}：{paper.title}",
+        f"标题：[{domain_tag}] {paper.title}",
         f"发布时间：{published_bj}（北京时间）",
         f"链接：{paper.url}",
         f"作者：{format_author_orgs(paper)}",
@@ -1168,6 +1168,20 @@ def render_paper_block(index: int, item: AnalyzedPaper, parsed: Dict[str, str], 
         f"论文的增量价值是什么、会带来什么影响：{parsed['论文的增量价值是什么、会带来什么影响']}",
         f"论文的局限性和不确定性、没有解决什么问题：{parsed['论文的局限性和不确定性、没有解决什么问题']}",
     ]
+
+
+def fallback_structured_analysis(paper: Paper, category: str, reason: str = "") -> Dict[str, str]:
+    abstract = (paper.abstract or "").strip()
+    short_abstract = abstract[:220] + ("…" if len(abstract) > 220 else "") if abstract else ""
+    no_data_msg = "本条未能抓取到稳定正文，以下结论基于题目与摘要，需后续复核。"
+    reason_text = f"（{reason}）" if reason else ""
+    return {
+        "论文想解决什么问题、该问题为什么重要": short_abstract or f"{no_data_msg}{reason_text}",
+        "论文的核心方法是什么、和以前相比如何创新": "正文抓取受限，方法细节暂无法完整还原，建议后续二次精读原文。",
+        "论文的核心结论": "正文抓取受限，暂无法给出高置信结论。",
+        "论文的增量价值是什么、会带来什么影响": f"该论文归属“{category}”方向，具备跟踪价值；当前仅可做低置信观察。",
+        "论文的局限性和不确定性、没有解决什么问题": "当前最大不确定性来自正文不可得或信息不足，结论可能与原文存在偏差。",
+    }
 
 
 def build_overview_lines(items: List[AnalyzedPaper]) -> List[str]:
@@ -1231,6 +1245,20 @@ def to_html(report_text: str) -> str:
             overview["本周趋势"] = ln.split("：", 1)[1].strip()
         elif ln.startswith("总体判断："):
             overview["总体判断"] = ln.split("：", 1)[1].strip()
+        elif ln.startswith("标题："):
+            if current:
+                papers.append(current)
+            current = {
+                "title": ln.split("：", 1)[1].strip(),
+                "published": "",
+                "author": "",
+                "link": "",
+                "problem": "",
+                "method": "",
+                "conclusion": "",
+                "value": "",
+                "risk": "",
+            }
         elif ln.startswith("论文") and "：" in ln:
             if current:
                 papers.append(current)
@@ -1266,41 +1294,6 @@ def to_html(report_text: str) -> str:
         papers.append(current)
 
     top3 = papers[:3]
-    top_cards = []
-    for i in range(3):
-        if i < len(top3):
-            p = top3[i]
-            brief = p.get("value") or p.get("conclusion") or p.get("problem") or "暂无摘要"
-            brief = brief[:78] + "…" if len(brief) > 78 else brief
-            top_cards.append(
-                f"""
-                <td valign='top' width='33.33%' style='padding:0 6px'>
-                  <table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='background:#FFFFFF;border:1px solid #E5E7EB;border-radius:16px;height:100%'>
-                    <tr><td style='padding:18px'>
-                      <div style='font-size:13px;font-weight:600;color:#2563EB;margin-bottom:6px'>Top {i+1}</div>
-                      <div style='font-size:19px;line-height:1.45;font-weight:700;color:#111827;margin-bottom:8px'>{html.escape(p.get('title',''))}</div>
-                      <div style='font-size:16px;line-height:1.7;color:#111827;margin-bottom:8px'>{html.escape(brief)}</div>
-                      <div style='font-size:13px;color:#6B7280;line-height:1.6'>{html.escape(p.get('published',''))}</div>
-                      <div style='font-size:13px;color:#6B7280;line-height:1.6'>{html.escape(p.get('author',''))}</div>
-                    </td></tr>
-                  </table>
-                </td>
-                """
-            )
-        else:
-            top_cards.append(
-                """
-                <td valign='top' width='33.33%' style='padding:0 6px'>
-                  <table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='background:#F8FAFC;border:1px solid #E5E7EB;border-radius:16px;height:100%'>
-                    <tr><td style='padding:18px'>
-                      <div style='font-size:13px;font-weight:600;color:#6B7280;margin-bottom:6px'>Top --</div>
-                      <div style='font-size:16px;line-height:1.7;color:#4B5563'>本期可用论文不足 3 篇。</div>
-                    </td></tr>
-                  </table>
-                </td>
-                """
-            )
-
     detail_cards = []
     for idx, p in enumerate(top3, start=1):
         link = p.get("link", "")
@@ -1310,7 +1303,7 @@ def to_html(report_text: str) -> str:
             <tr><td style='padding:0 0 16px 0'>
               <table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='background:#FFFFFF;border:1px solid #E5E7EB;border-radius:16px'>
                 <tr><td style='padding:24px'>
-                  <div style='font-size:19px;line-height:1.45;font-weight:700;color:#111827;margin-bottom:8px'>论文 {idx}｜{html.escape(p.get('title',''))}</div>
+                  <div style='font-size:19px;line-height:1.45;font-weight:700;color:#111827;margin-bottom:8px'>{html.escape(p.get('title',''))}</div>
                   <div style='font-size:13px;color:#6B7280;line-height:1.7;margin-bottom:12px'>发布时间：{html.escape(p.get('published',''))} ｜ 作者：{html.escape(p.get('author',''))} ｜ {link_html}</div>
 
                   <div style='background:#F8FAFC;border:1px solid #E5E7EB;border-radius:12px;padding:12px 14px;margin-bottom:10px'>
@@ -1372,10 +1365,6 @@ def to_html(report_text: str) -> str:
             </table>
 
             <div style='height:32px'></div>
-            <div style='font-size:24px;font-weight:700;color:#111827;margin-bottom:12px'>Top 3 论文摘要</div>
-            <table role='presentation' width='100%' cellspacing='0' cellpadding='0'><tr>{''.join(top_cards)}</tr></table>
-
-            <div style='height:32px'></div>
             <div style='font-size:24px;font-weight:700;color:#111827;margin-bottom:12px'>论文详解</div>
             <table role='presentation' width='100%' cellspacing='0' cellpadding='0'>{''.join(detail_cards) if detail_cards else "<tr><td style='font-size:16px;line-height:1.7;color:#4B5563'>本期暂无可解析论文。</td></tr>"}</table>
 
@@ -1427,13 +1416,17 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
         if not has_readable_fulltext(fulltext_context):
             skipped_no_fulltext += 1
             analysis_context = (paper.abstract or "").strip()
-            if not analysis_context:
-                continue
             abstract_fallback_used += 1
         score_json = compute_early_quality_score(paper, category, analysis_context)
         early_score = int(((score_json.get("scores") or {}).get("total_score") or 0))
-        raw = analyze_paper(client, paper, category, analysis_context)
-        parsed = parse_structured_analysis(raw)
+        if analysis_context:
+            try:
+                raw = analyze_paper(client, paper, category, analysis_context)
+                parsed = parse_structured_analysis(raw)
+            except Exception as exc:
+                parsed = fallback_structured_analysis(paper, category, reason=f"LLM解析失败：{exc}")
+        else:
+            parsed = fallback_structured_analysis(paper, category, reason="正文与摘要均不足")
         analyzed.append(AnalyzedPaper(paper=paper, category=category, analysis_lines=[], early_score=early_score, discussion_score=float(getattr(paper, "_social_score", 0.0))))
         parsed_map[paper.title] = parsed
         score_detail_map[paper.title] = score_json
@@ -1487,17 +1480,31 @@ def build_official_monitor_section() -> Tuple[str, str]:
         max_per_source = int(os.environ.get("OFFICIAL_MONITOR_MAX_PER_SOURCE", "20"))
         summary, _, clusters = run_pipeline(lookback_days=lookback, max_articles_per_source=max_per_source)
         if not clusters:
-            text = "AI大厂与投资机构官方动态\n过去7天未检索到可用的官方主题动态。"
-            html_block = "<section style='max-width:1040px;margin:22px auto 0;padding:0 18px 26px;'><h2 style='font-size:28px;color:#ecf3ff;margin:0 0 10px'>AI大厂与投资机构官方动态</h2><p style='font-size:16px;color:#dbe7ff'>过去7天未检索到可用的官方主题动态。</p></section>"
+            text = "本周 AI 官方信号图谱\n过去7天未检索到可用的官方主题动态。"
+            html_block = (
+                "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='margin-top:30px'>"
+                "<tr><td style='background:#FFFFFF;border:1px solid #E5E7EB;border-radius:16px;padding:24px'>"
+                "<div style='font-size:24px;line-height:1.25;font-weight:700;color:#111827;margin-bottom:8px'>本周 AI 官方信号图谱</div>"
+                "<div style='font-size:14px;line-height:1.6;color:#4B5563;margin-bottom:12px'>来自 AI 大厂与投资机构官网的主题归纳</div>"
+                "<div style='font-size:16px;line-height:1.7;color:#111827'>过去7天未检索到可用的官方主题动态。</div>"
+                "</td></tr></table>"
+            )
             return text, html_block
 
         md = render_markdown(summary, clusters)
         html_fragment = render_html_fragment(summary, clusters)
-        text = "AI大厂与投资机构官方动态\n" + md
+        text = "本周 AI 官方信号图谱\n" + md
         return text, html_fragment
     except Exception as exc:
-        warn = f"AI大厂与投资机构官方动态\n该板块本次生成失败：{exc}"
-        warn_html = f"<section style='max-width:1040px;margin:22px auto 0;padding:0 18px 26px;'><h2 style='font-size:28px;color:#ecf3ff;margin:0 0 10px'>AI大厂与投资机构官方动态</h2><p style='font-size:16px;color:#fda4af'>该板块本次生成失败：{html.escape(str(exc))}</p></section>"
+        warn = f"本周 AI 官方信号图谱\n该板块本次生成失败：{exc}"
+        warn_html = (
+            "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='margin-top:30px'>"
+            "<tr><td style='background:#FFFFFF;border:1px solid #E5E7EB;border-radius:16px;padding:24px'>"
+            "<div style='font-size:24px;line-height:1.25;font-weight:700;color:#111827;margin-bottom:8px'>本周 AI 官方信号图谱</div>"
+            "<div style='font-size:14px;line-height:1.6;color:#4B5563;margin-bottom:12px'>来自 AI 大厂与投资机构官网的主题归纳</div>"
+            f"<div style='font-size:16px;line-height:1.7;color:#B91C1C'>该板块本次生成失败：{html.escape(str(exc))}</div>"
+            "</td></tr></table>"
+        )
         return warn, warn_html
 
 

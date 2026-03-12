@@ -1,7 +1,7 @@
 {
   "run_summary": {
-    "started_at": "2026-03-12T07:32:02.253343+00:00",
-    "finished_at": "2026-03-12T07:32:02.253343+00:00",
+    "started_at": "2026-03-12T08:23:36.275494+00:00",
+    "finished_at": "2026-03-12T08:23:36.275494+00:00",
     "lookback_days": 7,
     "trusted_sources": 35,
     "covered_sources": 3,
@@ -21,8 +21,8 @@
       "title": "OpenAI releases enterprise agent toolkit",
       "url": "https://openai.com/news/agent-toolkit",
       "canonical_url": "https://openai.com/news/agent-toolkit",
-      "published_at": "2026-03-12T07:32:02.253343+00:00",
-      "collected_at": "2026-03-12T07:32:02.253343+00:00",
+      "published_at": "2026-03-12T08:23:36.275494+00:00",
+      "collected_at": "2026-03-12T08:23:36.275494+00:00",
       "author": "OpenAI",
       "language": "en",
       "page_type": "article",
@@ -54,8 +54,8 @@
       "title": "Anthropic launches new API controls for enterprise AI",
       "url": "https://www.anthropic.com/news/api-controls",
       "canonical_url": "https://www.anthropic.com/news/api-controls",
-      "published_at": "2026-03-12T07:32:02.253343+00:00",
-      "collected_at": "2026-03-12T07:32:02.253343+00:00",
+      "published_at": "2026-03-12T08:23:36.275494+00:00",
+      "collected_at": "2026-03-12T08:23:36.275494+00:00",
       "author": "Anthropic",
       "language": "en",
       "page_type": "article",
@@ -86,8 +86,8 @@
       "title": "Why AI infrastructure investment is accelerating",
       "url": "https://a16z.com/news-content/ai-infra-investment",
       "canonical_url": "https://a16z.com/news-content/ai-infra-investment",
-      "published_at": "2026-03-12T07:32:02.253343+00:00",
-      "collected_at": "2026-03-12T07:32:02.253343+00:00",
+      "published_at": "2026-03-12T08:23:36.275494+00:00",
+      "collected_at": "2026-03-12T08:23:36.275494+00:00",
       "author": "a16z",
       "language": "en",
       "page_type": "article",
@@ -115,11 +115,11 @@
     {
       "topic_cluster_id": "topic_001",
       "topic_title": "多家机构集中推进Agent与开发者平台能力",
-      "event_summary": "过去一周内，该主题下多条官方内容围绕“product_release、api、enterprise、agent”持续更新，集中体现为产品发布、平台能力完善或投资观点同步发声。这些动态共同反映行业竞争重点正在从单点能力转向可落地的商业与生态推进。",
+      "event_summary": "过去一周内，该主题下多条官方内容围绕“enterprise、product_release、api、agent”持续更新，集中体现为产品发布、平台能力完善或投资观点同步发声。这些动态共同反映行业竞争重点正在从单点能力转向可落地的商业与生态推进。",
       "topic_keywords": [
+        "enterprise",
         "product_release",
         "api",
-        "enterprise",
         "agent"
       ],
       "strategic_signal": "信号显示行业正在加速从技术能力展示转向平台化与商业化执行。",
@@ -135,7 +135,7 @@
           "article_id": "article_0001",
           "title": "OpenAI releases enterprise agent toolkit",
           "institution_name": "OpenAI",
-          "published_at": "2026-03-12T07:32:02.253343+00:00",
+          "published_at": "2026-03-12T08:23:36.275494+00:00",
           "article_summary_zh": "核心内容：OpenAI releases enterprise agent toolkit。关键信号：agent；api；enterprise。涉及主体：OpenAI。",
           "source_link_markdown": "[@OpenAI（原文链接）](https://openai.com/news/agent-toolkit)",
           "url": "https://openai.com/news/agent-toolkit"
@@ -144,7 +144,7 @@
           "article_id": "article_0002",
           "title": "Anthropic launches new API controls for enterprise AI",
           "institution_name": "Anthropic",
-          "published_at": "2026-03-12T07:32:02.253343+00:00",
+          "published_at": "2026-03-12T08:23:36.275494+00:00",
           "article_summary_zh": "核心内容：Anthropic launches new API controls for enterprise AI。关键信号：api；enterprise。涉及主体：Anthropic。",
           "source_link_markdown": "[@Anthropic（原文链接）](https://www.anthropic.com/news/api-controls)",
           "url": "https://www.anthropic.com/news/api-controls"
@@ -154,12 +154,12 @@
     {
       "topic_cluster_id": "topic_002",
       "topic_title": "投资机构与企业同步释放AI投资与融资信号",
-      "event_summary": "过去一周内，该主题下多条官方内容围绕“compute、cloud、investment_signal、investment”持续更新，集中体现为产品发布、平台能力完善或投资观点同步发声。这些动态共同反映行业竞争重点正在从单点能力转向可落地的商业与生态推进。",
+      "event_summary": "过去一周内，该主题下多条官方内容围绕“cloud、investment、investment_signal、compute”持续更新，集中体现为产品发布、平台能力完善或投资观点同步发声。这些动态共同反映行业竞争重点正在从单点能力转向可落地的商业与生态推进。",
       "topic_keywords": [
-        "compute",
         "cloud",
+        "investment",
         "investment_signal",
-        "investment"
+        "compute"
       ],
       "strategic_signal": "信号显示行业正在加速从技术能力展示转向平台化与商业化执行。",
       "article_count": 1,
@@ -173,7 +173,7 @@
           "article_id": "article_0003",
           "title": "Why AI infrastructure investment is accelerating",
           "institution_name": "a16z",
-          "published_at": "2026-03-12T07:32:02.253343+00:00",
+          "published_at": "2026-03-12T08:23:36.275494+00:00",
           "article_summary_zh": "核心内容：Why AI infrastructure investment is accelerating。关键信号：investment；compute；cloud。涉及主体：a16z。",
           "source_link_markdown": "[@a16z（原文链接）](https://a16z.com/news-content/ai-infra-investment)",
           "url": "https://a16z.com/news-content/ai-infra-investment"

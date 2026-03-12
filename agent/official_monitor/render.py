@@ -180,10 +180,76 @@ def render_markdown(run_summary: RunSummary, clusters: List[TopicCluster]) -> st
 
 
 def render_html_fragment(run_summary: RunSummary, clusters: List[TopicCluster]) -> str:
-    hero = _report_hero(run_summary, clusters)
-    summary = _summary_stats(run_summary, clusters)
-    sections = "".join([_report_section(i, c) for i, c in enumerate(clusters, start=1)])
-    return f"<section class='embedded-weekly-report' style='margin-top:26px'>{hero}{summary}{sections}</section>"
+    selected = sorted(clusters, key=lambda c: (c.topic_priority_score, c.article_count), reverse=True)[:6]
+    if not selected:
+        return (
+            "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='margin-top:28px'>"
+            "<tr><td style='background:#FFFFFF;border:1px solid #E5E7EB;border-radius:16px;padding:24px'>"
+            "<div style='font-size:24px;font-weight:700;color:#111827;margin-bottom:8px'>本周 AI 官方信号图谱</div>"
+            "<div style='font-size:16px;line-height:1.7;color:#4B5563'>过去7天未形成可用于管理层判断的稳定主题。</div>"
+            "</td></tr></table>"
+        )
+
+    weekly_judgment = selected[0].event_summary
+    if len(weekly_judgment) > 140:
+        weekly_judgment = weekly_judgment[:140] + "…"
+
+    def theme_lead(c: TopicCluster) -> str:
+        lead = c.strategic_signal or ""
+        if len(lead) > 56:
+            lead = lead[:56] + "…"
+        return lead
+
+    theme_blocks = []
+    for c in selected:
+        article_cards = []
+        for a in c.supporting_articles[:3]:
+            article_cards.append(
+                f"""
+                <tr><td style='padding:0 0 10px 0'>
+                  <table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='background:#FFFFFF;border:1px solid #E5E7EB;border-radius:12px'>
+                    <tr><td style='padding:14px 14px 12px'>
+                      <div style='font-size:18px;line-height:1.45;font-weight:700;color:#111827;margin-bottom:6px'>{escape(a.get('title',''))}</div>
+                      <div style='font-size:16px;line-height:1.7;color:#111827;margin-bottom:8px'>{escape(a.get('article_summary_zh',''))}</div>
+                      <div style='font-size:13px;line-height:1.6;color:#4B5563'>来源：<a href='{escape(a.get('url',''))}' style='color:#2563EB;text-decoration:none'>{escape(a.get('source_link_markdown',''))}</a></div>
+                    </td></tr>
+                  </table>
+                </td></tr>
+                """
+            )
+
+        theme_blocks.append(
+            f"""
+            <tr><td style='padding:0 0 14px 0'>
+              <table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='background:#F8FAFC;border:1px solid #E5E7EB;border-radius:14px'>
+                <tr><td style='padding:16px 16px 10px'>
+                  <div style='font-size:19px;line-height:1.4;font-weight:700;color:#111827;margin-bottom:4px'>{escape(c.topic_title)}</div>
+                  <div style='font-size:14px;line-height:1.6;color:#4B5563;margin-bottom:10px'>{escape(theme_lead(c))}</div>
+                  <table role='presentation' width='100%' cellspacing='0' cellpadding='0'>
+                    {''.join(article_cards)}
+                  </table>
+                </td></tr>
+              </table>
+            </td></tr>
+            """
+        )
+
+    return f"""
+    <table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='margin-top:30px'>
+      <tr><td style='background:#FFFFFF;border:1px solid #E5E7EB;border-radius:16px;padding:24px'>
+        <div style='font-size:12px;font-weight:600;color:#2563EB;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px'>Weekly Brief</div>
+        <div style='font-size:24px;line-height:1.25;font-weight:700;color:#111827;margin-bottom:8px'>本周 AI 官方信号图谱</div>
+        <div style='font-size:14px;line-height:1.6;color:#4B5563;margin-bottom:12px'>来自 AI 大厂与投资机构官网的主题归纳</div>
+        <div style='background:#EFF6FF;border-left:3px solid #2563EB;border-radius:10px;padding:10px 12px;margin-bottom:14px'>
+          <div style='font-size:14px;font-weight:600;color:#1E3A8A;margin-bottom:3px'>本周判断</div>
+          <div style='font-size:16px;line-height:1.7;color:#111827'>{escape(weekly_judgment)}</div>
+        </div>
+        <table role='presentation' width='100%' cellspacing='0' cellpadding='0'>
+          {''.join(theme_blocks)}
+        </table>
+      </td></tr>
+    </table>
+    """.strip()
 
 
 def render_html(run_summary: RunSummary, clusters: List[TopicCluster]) -> str:

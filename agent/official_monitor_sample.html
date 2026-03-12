@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang='zh-CN'>
+<head>
+  <meta charset='utf-8' />
+  <meta name='viewport' content='width=device-width, initial-scale=1' />
+  <title>过去一周 AI 官方动态聚类</title>
+  <style>
+    :root {
+      --bg:#060b16; --panel:#0d1528; --text:#dbe7ff; --muted:#9eb2d8; --line:#1e3159;
+      --accent:#56b6ff; --accent2:#7c5cff;
+    }
+    body { margin:0; font-family:Inter,Segoe UI,PingFang SC,Arial,sans-serif; color:var(--text);
+      background:radial-gradient(900px 420px at 8% -5%, rgba(86,182,255,.25), transparent 42%),
+                 radial-gradient(800px 380px at 95% -10%, rgba(124,92,255,.2), transparent 40%), var(--bg);
+      line-height:1.72; }
+    .wrap { max-width:1080px; margin:0 auto; padding:28px 18px 42px; }
+    h1 { margin:0 0 14px; font-size:38px; letter-spacing:.4px; }
+    .subtitle { color:var(--muted); margin-bottom:18px; }
+    .stats { display:grid; grid-template-columns: repeat(5,minmax(140px,1fr)); gap:10px; margin-bottom:18px; }
+    .stat { background:linear-gradient(180deg,#0e1a33,#0b1428); border:1px solid var(--line); border-radius:12px; padding:10px 12px; }
+    .stat .k { color:var(--muted); font-size:12px; }
+    .stat .v { color:#f2f7ff; font-size:20px; font-weight:800; margin-top:4px; }
+    .topic { background:linear-gradient(180deg,rgba(13,21,40,.95),rgba(10,16,30,.95)); border:1px solid var(--line); border-radius:16px; padding:16px 16px 14px; margin:14px 0 18px; box-shadow:0 10px 30px rgba(0,0,0,.3); }
+    .topic-head { display:flex; align-items:baseline; gap:12px; }
+    .topic-index { color:var(--accent); font-weight:700; font-size:14px; }
+    .topic h2 { margin:0; font-size:24px; line-height:1.35; }
+    .chip-row { margin:10px 0 10px; }
+    .chip { display:inline-block; margin:0 8px 8px 0; padding:4px 10px; border-radius:999px; background:#102242; border:1px solid #234070; color:#b9d6ff; font-size:12px; }
+    .event-summary, .strategic { margin-top:8px; color:#d8e6ff; }
+    .strategic { padding:10px 12px; border-radius:10px; background:#0c203f; border:1px solid #20406f; }
+    .articles { margin-top:12px; display:grid; gap:10px; }
+    .article { border:1px solid #223b67; border-radius:12px; padding:12px; background:#0a1730; }
+    .article-title { font-size:17px; font-weight:750; color:#ecf4ff; margin-bottom:6px; }
+    .article-summary { color:#d5e4ff; }
+    .article-source { margin-top:7px; color:#9fb7dd; font-size:14px; }
+    a { color:#83ccff; text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    @media (max-width:960px) { .stats { grid-template-columns: repeat(2,minmax(140px,1fr)); } h1 {font-size:30px;} }
+  </style>
+</head>
+<body>
+  <div class='wrap'>
+    <h1>过去一周 AI 官方动态聚类</h1>
+    <div class='subtitle'>事件优先聚类 · 官方信源 · 高信息密度周报</div>
+    <div class='stats'><div class='stat'><div class='k'>统计时间范围</div><div class='v'>过去7天（滚动）</div></div><div class='stat'><div class='k'>覆盖来源数</div><div class='v'>3</div></div><div class='stat'><div class='k'>抓取文章数</div><div class='v'>3</div></div><div class='stat'><div class='k'>去重后文章数</div><div class='v'>3</div></div><div class='stat'><div class='k'>聚类主题数</div><div class='v'>2</div></div></div>
+    
+            <section class='topic'>
+              <div class='topic-head'>
+                <div class='topic-index'>Topic 1</div>
+                <h2>多家机构集中推进Agent与开发者平台能力</h2>
+              </div>
+              <div class='chip-row'>
+                <span class='chip'>enterprise</span><span class='chip'>api</span><span class='chip'>product_release</span><span class='chip'>agent</span>
+              </div>
+              <div class='event-summary'><b>事件总结：</b>过去一周内，该主题下多条官方内容围绕“enterprise、api、product_release、agent”持续更新，集中体现为产品发布、平台能力完善或投资观点同步发声。这些动态共同反映行业竞争重点正在从单点能力转向可落地的商业与生态推进。</div>
+              <div class='strategic'><b>战略信号：</b>信号显示行业正在加速从技术能力展示转向平台化与商业化执行。</div>
+              <div class='articles'>
+                <div class='article'>
+                  <div class='article-title'>OpenAI releases enterprise agent toolkit</div>
+                  <div class='article-summary'>核心内容：OpenAI releases enterprise agent toolkit。关键信号：agent；api；enterprise。涉及主体：OpenAI。</div>
+                  <div class='article-source'>来源：<a href='https://openai.com/news/agent-toolkit' target='_blank' rel='noopener'>[@OpenAI（原文链接）](https://openai.com/news/agent-toolkit)</a></div>
+                </div>
+                
+                <div class='article'>
+                  <div class='article-title'>Anthropic launches new API controls for enterprise AI</div>
+                  <div class='article-summary'>核心内容：Anthropic launches new API controls for enterprise AI。关键信号：api；enterprise。涉及主体：Anthropic。</div>
+                  <div class='article-source'>来源：<a href='https://www.anthropic.com/news/api-controls' target='_blank' rel='noopener'>[@Anthropic（原文链接）](https://www.anthropic.com/news/api-controls)</a></div>
+                </div>
+                </div>
+            </section>
+            
+            <section class='topic'>
+              <div class='topic-head'>
+                <div class='topic-index'>Topic 2</div>
+                <h2>投资机构与企业同步释放AI投资与融资信号</h2>
+              </div>
+              <div class='chip-row'>
+                <span class='chip'>investment_signal</span><span class='chip'>cloud</span><span class='chip'>compute</span><span class='chip'>investment</span>
+              </div>
+              <div class='event-summary'><b>事件总结：</b>过去一周内，该主题下多条官方内容围绕“investment_signal、cloud、compute、investment”持续更新，集中体现为产品发布、平台能力完善或投资观点同步发声。这些动态共同反映行业竞争重点正在从单点能力转向可落地的商业与生态推进。</div>
+              <div class='strategic'><b>战略信号：</b>信号显示行业正在加速从技术能力展示转向平台化与商业化执行。</div>
+              <div class='articles'>
+                <div class='article'>
+                  <div class='article-title'>Why AI infrastructure investment is accelerating</div>
+                  <div class='article-summary'>核心内容：Why AI infrastructure investment is accelerating。关键信号：investment；compute；cloud。涉及主体：a16z。</div>
+                  <div class='article-source'>来源：<a href='https://a16z.com/news-content/ai-infra-investment' target='_blank' rel='noopener'>[@a16z（原文链接）](https://a16z.com/news-content/ai-infra-investment)</a></div>
+                </div>
+                </div>
+            </section>
+            
+  </div>
+</body>
+</html>

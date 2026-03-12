@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from html import escape
 from typing import Any, Dict, List
 
 from .models import NormalizedArticle, RunSummary, TopicCluster
@@ -17,11 +18,147 @@ def render_json(run_summary: RunSummary, articles: List[NormalizedArticle], clus
     }
 
 
+def _brief_intro(clusters: List[TopicCluster]) -> str:
+    if not clusters:
+        return "本期暂无高置信主题，建议关注下一周期官方发布节奏。"
+    top = max(clusters, key=lambda c: (c.topic_priority_score, c.article_count))
+    return f"本期重点围绕“{top.topic_title}”展开，建议优先阅读高优先级主题并跟踪其后续落地。"
+
+
+def _summary_cards(run_summary: RunSummary, clusters: List[TopicCluster]) -> List[Dict[str, str]]:
+    top_titles = "；".join([c.topic_title for c in clusters[:3]]) if clusters else "无"
+    trend = "；".join(["产品化与平台化信号增强", "多方官方信息同题共振", "事件聚类更利于管理层快速决策"])
+    return [
+        {"title": "本期主题数", "value": str(run_summary.topic_clusters), "desc": "事件优先聚类后可直接用于决策阅读顺序"},
+        {"title": "覆盖来源", "value": str(run_summary.covered_sources), "desc": f"共追踪 {run_summary.trusted_sources} 个官方信源"},
+        {"title": "去重后文章", "value": str(run_summary.deduped_articles), "desc": f"原始抓取 {run_summary.fetched_articles} 篇，已去重清洗"},
+        {"title": "Top 3 主题", "value": top_titles or "无", "desc": "建议作为管理层先读模块"},
+        {"title": "本期趋势", "value": trend, "desc": "由主题聚类结果归纳，不新增业务推断"},
+    ]
+
+
+def _source_link(url: str, markdown_text: str) -> str:
+    return (
+        f"<a class='source-link' href='{escape(url)}' target='_blank' rel='noopener'>{escape(markdown_text)}</a>"
+        if url
+        else f"<span class='source-link muted'>{escape(markdown_text)}</span>"
+    )
+
+
+def _report_hero(run_summary: RunSummary, clusters: List[TopicCluster]) -> str:
+    intro = _brief_intro(clusters)
+    return f"""
+    <section class='hero'>
+      <div class='hero-eyebrow'>Official Source Monitor · Weekly Research Brief</div>
+      <h1>过去一周 AI 官方动态聚类周报</h1>
+      <p class='hero-subtitle'>{escape(intro)}</p>
+      <div class='hero-meta'>
+        <span>统计时间范围：过去{run_summary.lookback_days}天（滚动）</span>
+        <span>主题数：{run_summary.topic_clusters}</span>
+        <span>去重文章：{run_summary.deduped_articles}</span>
+      </div>
+    </section>
+    """.strip()
+
+
+def _summary_stats(run_summary: RunSummary, clusters: List[TopicCluster]) -> str:
+    cards = []
+    for c in _summary_cards(run_summary, clusters):
+        cards.append(
+            f"""
+            <article class='summary-card'>
+              <div class='summary-title'>{escape(c['title'])}</div>
+              <div class='summary-value'>{escape(c['value'])}</div>
+              <div class='summary-desc'>{escape(c['desc'])}</div>
+            </article>
+            """.strip()
+        )
+    return "<section class='summary-grid'>" + "".join(cards) + "</section>"
+
+
+def _meta_info_row(cluster: TopicCluster) -> str:
+    sources = "、".join(cluster.sources) if cluster.sources else "未披露"
+    return (
+        "<div class='meta-row'>"
+        f"<span>文章数：{cluster.article_count}</span>"
+        f"<span>置信度：{cluster.cluster_confidence_score:.2f}</span>"
+        f"<span>优先级：{cluster.topic_priority_score:.1f}</span>"
+        f"<span>涉及机构：{escape(sources)}</span>"
+        "</div>"
+    )
+
+
+def _insight_block(label: str, content: str, tone: str = "normal") -> str:
+    cls = "insight-block"
+    if tone == "highlight":
+        cls += " highlight"
+    return (
+        f"<section class='{cls}'>"
+        f"<h4>{escape(label)}</h4>"
+        f"<p>{escape(content)}</p>"
+        "</section>"
+    )
+
+
+def _article_card(item: Dict[str, Any]) -> str:
+    title = str(item.get("title", "未命名文章"))
+    summary = str(item.get("article_summary_zh", ""))
+    institution = str(item.get("institution_name", "未披露"))
+    published = str(item.get("published_at", "未披露"))
+    source_markdown = str(item.get("source_link_markdown", ""))
+    url = str(item.get("url", ""))
+
+    return f"""
+    <article class='event-card'>
+      <header class='event-header'>
+        <h5>{escape(title)}</h5>
+        <div class='event-meta'>
+          <span>机构：{escape(institution)}</span>
+          <span>发布时间：{escape(published[:10]) if published else '未披露'}</span>
+        </div>
+      </header>
+      <div class='event-body'>
+        {_insight_block('摘要', summary)}
+      </div>
+      <footer class='event-footer'>
+        <span class='label'>来源</span>
+        {_source_link(url, source_markdown)}
+      </footer>
+    </article>
+    """.strip()
+
+
+def _report_section(idx: int, cluster: TopicCluster) -> str:
+    chips = "".join([f"<span class='chip'>{escape(k)}</span>" for k in cluster.topic_keywords[:8]])
+    articles = "".join([_article_card(a) for a in cluster.supporting_articles])
+
+    return f"""
+    <section class='report-section'>
+      <header class='section-header'>
+        <div class='section-kicker'>Topic {idx:02d}</div>
+        <h3>{escape(cluster.topic_title)}</h3>
+        {_meta_info_row(cluster)}
+      </header>
+
+      <div class='section-summary'>
+        {_insight_block('事件总结', cluster.event_summary)}
+        {_insight_block('战略信号', cluster.strategic_signal, tone='highlight')}
+      </div>
+
+      <div class='chip-group'>{chips}</div>
+
+      <div class='event-list'>
+        {articles}
+      </div>
+    </section>
+    """.strip()
+
+
 def render_markdown(run_summary: RunSummary, clusters: List[TopicCluster]) -> str:
     lines = [
         "# 过去一周 AI 官方动态聚类",
         "",
-        f"- 统计时间范围：过去7天（滚动）",
+        f"- 统计时间范围：过去{run_summary.lookback_days}天（滚动）",
         f"- 覆盖来源数：{run_summary.covered_sources}",
         f"- 抓取文章数：{run_summary.fetched_articles}",
         f"- 去重后文章数：{run_summary.deduped_articles}",
@@ -43,54 +180,9 @@ def render_markdown(run_summary: RunSummary, clusters: List[TopicCluster]) -> st
 
 
 def render_html(run_summary: RunSummary, clusters: List[TopicCluster]) -> str:
-    rows = [
-        ("统计时间范围", "过去7天（滚动）"),
-        ("覆盖来源数", str(run_summary.covered_sources)),
-        ("抓取文章数", str(run_summary.fetched_articles)),
-        ("去重后文章数", str(run_summary.deduped_articles)),
-        ("聚类主题数", str(run_summary.topic_clusters)),
-    ]
-    stat_html = "".join(
-        f"<div class='stat'><div class='k'>{k}</div><div class='v'>{v}</div></div>" for k, v in rows
-    )
-
-    topic_blocks = []
-    for idx, c in enumerate(clusters, start=1):
-        article_cards = []
-        for a in c.supporting_articles:
-            article_cards.append(
-                """
-                <div class='article'>
-                  <div class='article-title'>{title}</div>
-                  <div class='article-summary'>{summary}</div>
-                  <div class='article-source'>来源：<a href='{url}' target='_blank' rel='noopener'>{source}</a></div>
-                </div>
-                """.format(title=a["title"], summary=a["article_summary_zh"], url=a.get('url') or '#', source=a["source_link_markdown"])
-            )
-
-        topic_blocks.append(
-            """
-            <section class='topic'>
-              <div class='topic-head'>
-                <div class='topic-index'>Topic {idx}</div>
-                <h2>{title}</h2>
-              </div>
-              <div class='chip-row'>
-                {chips}
-              </div>
-              <div class='event-summary'><b>事件总结：</b>{event_summary}</div>
-              <div class='strategic'><b>战略信号：</b>{strategic_signal}</div>
-              <div class='articles'>{articles}</div>
-            </section>
-            """.format(
-                idx=idx,
-                title=c.topic_title,
-                chips="".join(f"<span class='chip'>{kw}</span>" for kw in c.topic_keywords[:6]),
-                event_summary=c.event_summary,
-                strategic_signal=c.strategic_signal,
-                articles="".join(article_cards),
-            )
-        )
+    hero = _report_hero(run_summary, clusters)
+    summary = _summary_stats(run_summary, clusters)
+    sections = "".join([_report_section(i, c) for i, c in enumerate(clusters, start=1)])
 
     return f"""
 <!doctype html>
@@ -98,48 +190,304 @@ def render_html(run_summary: RunSummary, clusters: List[TopicCluster]) -> str:
 <head>
   <meta charset='utf-8' />
   <meta name='viewport' content='width=device-width, initial-scale=1' />
-  <title>过去一周 AI 官方动态聚类</title>
+  <title>过去一周 AI 官方动态聚类周报</title>
   <style>
     :root {{
-      --bg:#060b16; --panel:#0d1528; --text:#dbe7ff; --muted:#9eb2d8; --line:#1e3159;
-      --accent:#56b6ff; --accent2:#7c5cff;
+      --bg: #f4f6fa;
+      --panel: #ffffff;
+      --panel-soft: #f8faff;
+      --text: #0f172a;
+      --text-2: #334155;
+      --text-3: #64748b;
+      --line: #d9e2ef;
+      --brand: #243b70;
+      --brand-soft: #e9eef9;
+      --highlight-bg: #eef3ff;
+      --highlight-line: #c9d8ff;
+      --shadow: 0 8px 28px rgba(15, 23, 42, 0.06);
     }}
-    body {{ margin:0; font-family:Inter,Segoe UI,PingFang SC,Arial,sans-serif; color:var(--text);
-      background:radial-gradient(900px 420px at 8% -5%, rgba(86,182,255,.25), transparent 42%),
-                 radial-gradient(800px 380px at 95% -10%, rgba(124,92,255,.2), transparent 40%), var(--bg);
-      line-height:1.72; }}
-    .wrap {{ max-width:1080px; margin:0 auto; padding:28px 18px 42px; }}
-    h1 {{ margin:0 0 14px; font-size:38px; letter-spacing:.4px; }}
-    .subtitle {{ color:var(--muted); margin-bottom:18px; }}
-    .stats {{ display:grid; grid-template-columns: repeat(5,minmax(140px,1fr)); gap:10px; margin-bottom:18px; }}
-    .stat {{ background:linear-gradient(180deg,#0e1a33,#0b1428); border:1px solid var(--line); border-radius:12px; padding:10px 12px; }}
-    .stat .k {{ color:var(--muted); font-size:12px; }}
-    .stat .v {{ color:#f2f7ff; font-size:20px; font-weight:800; margin-top:4px; }}
-    .topic {{ background:linear-gradient(180deg,rgba(13,21,40,.95),rgba(10,16,30,.95)); border:1px solid var(--line); border-radius:16px; padding:16px 16px 14px; margin:14px 0 18px; box-shadow:0 10px 30px rgba(0,0,0,.3); }}
-    .topic-head {{ display:flex; align-items:baseline; gap:12px; }}
-    .topic-index {{ color:var(--accent); font-weight:700; font-size:14px; }}
-    .topic h2 {{ margin:0; font-size:24px; line-height:1.35; }}
-    .chip-row {{ margin:10px 0 10px; }}
-    .chip {{ display:inline-block; margin:0 8px 8px 0; padding:4px 10px; border-radius:999px; background:#102242; border:1px solid #234070; color:#b9d6ff; font-size:12px; }}
-    .event-summary, .strategic {{ margin-top:8px; color:#d8e6ff; }}
-    .strategic {{ padding:10px 12px; border-radius:10px; background:#0c203f; border:1px solid #20406f; }}
-    .articles {{ margin-top:12px; display:grid; gap:10px; }}
-    .article {{ border:1px solid #223b67; border-radius:12px; padding:12px; background:#0a1730; }}
-    .article-title {{ font-size:17px; font-weight:750; color:#ecf4ff; margin-bottom:6px; }}
-    .article-summary {{ color:#d5e4ff; }}
-    .article-source {{ margin-top:7px; color:#9fb7dd; font-size:14px; }}
-    a {{ color:#83ccff; text-decoration:none; }}
-    a:hover {{ text-decoration:underline; }}
-    @media (max-width:960px) {{ .stats {{ grid-template-columns: repeat(2,minmax(140px,1fr)); }} h1 {{font-size:30px;}} }}
+
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Inter", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }}
+
+    .container {{
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 26px 20px 48px;
+    }}
+
+    .hero {{
+      background: linear-gradient(180deg, #f9fbff 0%, #f2f6ff 100%);
+      border: 1px solid #d7e1f2;
+      border-radius: 16px;
+      padding: 24px 26px 22px;
+      box-shadow: var(--shadow);
+      margin-bottom: 16px;
+    }}
+
+    .hero-eyebrow {{
+      color: var(--brand);
+      font-weight: 600;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }}
+
+    .hero h1 {{
+      margin: 0;
+      font-size: 34px;
+      font-weight: 720;
+      line-height: 1.25;
+      color: #101a2d;
+    }}
+
+    .hero-subtitle {{
+      margin: 12px 0 0;
+      color: var(--text-2);
+      font-size: 16px;
+      max-width: 900px;
+    }}
+
+    .hero-meta {{
+      margin-top: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }}
+
+    .hero-meta span {{
+      font-size: 12px;
+      color: var(--text-3);
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid #dde6f6;
+      border-radius: 999px;
+      padding: 5px 10px;
+    }}
+
+    .summary-grid {{
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 20px;
+    }}
+
+    .summary-card {{
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px 14px 12px;
+      box-shadow: 0 2px 10px rgba(15, 23, 42, 0.03);
+      min-height: 130px;
+    }}
+
+    .summary-title {{
+      font-size: 12px;
+      color: var(--text-3);
+      margin-bottom: 6px;
+      font-weight: 600;
+    }}
+
+    .summary-value {{
+      font-size: 20px;
+      line-height: 1.35;
+      color: #0b1a3a;
+      font-weight: 700;
+      margin-bottom: 7px;
+      word-break: break-word;
+    }}
+
+    .summary-desc {{
+      font-size: 12px;
+      color: var(--text-3);
+      line-height: 1.5;
+    }}
+
+    .report-section {{
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      padding: 20px 20px 18px;
+      margin-bottom: 16px;
+    }}
+
+    .section-header {{
+      border-bottom: 1px solid #e4ebf7;
+      padding-bottom: 12px;
+      margin-bottom: 14px;
+    }}
+
+    .section-kicker {{
+      font-size: 12px;
+      color: var(--brand);
+      font-weight: 700;
+      margin-bottom: 4px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }}
+
+    .section-header h3 {{
+      margin: 0;
+      font-size: 27px;
+      line-height: 1.32;
+      font-weight: 700;
+      color: #0f1f3e;
+    }}
+
+    .meta-row {{
+      margin-top: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }}
+
+    .meta-row span {{
+      font-size: 12px;
+      color: #4b607f;
+      background: var(--panel-soft);
+      border: 1px solid #dfe8f6;
+      border-radius: 999px;
+      padding: 5px 10px;
+    }}
+
+    .section-summary {{
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-bottom: 12px;
+    }}
+
+    .insight-block {{
+      background: #fbfdff;
+      border: 1px solid #e1eaf7;
+      border-radius: 12px;
+      padding: 12px 14px;
+    }}
+
+    .insight-block.highlight {{
+      background: var(--highlight-bg);
+      border-color: var(--highlight-line);
+    }}
+
+    .insight-block h4 {{
+      margin: 0 0 5px;
+      font-size: 14px;
+      color: #20345e;
+      font-weight: 700;
+    }}
+
+    .insight-block p {{
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.82;
+      color: #1f304d;
+    }}
+
+    .chip-group {{
+      margin-bottom: 12px;
+    }}
+
+    .chip {{
+      display: inline-block;
+      font-size: 12px;
+      color: #35548b;
+      background: #edf3ff;
+      border: 1px solid #d5e2fb;
+      border-radius: 999px;
+      padding: 4px 10px;
+      margin: 0 7px 7px 0;
+    }}
+
+    .event-list {{
+      display: grid;
+      gap: 10px;
+    }}
+
+    .event-card {{
+      background: #ffffff;
+      border: 1px solid #e3ebf8;
+      border-radius: 12px;
+      padding: 14px 14px 12px;
+    }}
+
+    .event-header h5 {{
+      margin: 0;
+      font-size: 19px;
+      line-height: 1.45;
+      color: #0f203f;
+      font-weight: 680;
+    }}
+
+    .event-meta {{
+      margin-top: 6px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      color: #576b8a;
+      font-size: 12px;
+    }}
+
+    .event-body {{ margin-top: 10px; }}
+
+    .event-footer {{
+      margin-top: 10px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      font-size: 13px;
+      color: #5f7394;
+      border-top: 1px dashed #dbe4f3;
+      padding-top: 8px;
+    }}
+
+    .event-footer .label {{
+      color: #355483;
+      font-weight: 600;
+    }}
+
+    .source-link {{
+      color: #204c9f;
+      text-decoration: none;
+      word-break: break-all;
+    }}
+
+    .source-link:hover {{ text-decoration: underline; }}
+    .muted {{ color: #8fa0bc; }}
+
+    @media (max-width: 1120px) {{
+      .summary-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+    }}
+
+    @media (max-width: 720px) {{
+      .container {{ padding: 16px 12px 32px; }}
+      .hero {{ padding: 18px 16px; }}
+      .hero h1 {{ font-size: 28px; }}
+      .section-header h3 {{ font-size: 22px; }}
+      .summary-grid {{ grid-template-columns: 1fr; }}
+    }}
+
+    @media print {{
+      body {{ background: #fff; }}
+      .container {{ max-width: 100%; padding: 0; }}
+      .hero, .summary-card, .report-section, .event-card {{ box-shadow: none; }}
+      a {{ color: #1e3a8a; text-decoration: underline; }}
+    }}
   </style>
 </head>
 <body>
-  <div class='wrap'>
-    <h1>过去一周 AI 官方动态聚类</h1>
-    <div class='subtitle'>事件优先聚类 · 官方信源 · 高信息密度周报</div>
-    <div class='stats'>{stat_html}</div>
-    {''.join(topic_blocks)}
-  </div>
+  <main class='container'>
+    {hero}
+    {summary}
+    {sections}
+  </main>
 </body>
 </html>
 """.strip() + "\n"

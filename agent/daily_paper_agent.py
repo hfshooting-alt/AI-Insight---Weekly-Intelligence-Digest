@@ -1220,7 +1220,7 @@ def to_html(report_text: str) -> str:
             html_lines.append("<div style='height:12px'></div>")
             continue
 
-        if striped.startswith("World Engine 与 Data Infra 论文日报"):
+        if striped.startswith("World Engine 与 Data Infra 论文周报"):
             close_paper_card()
             html_lines.append(
                 f"<h1 style='font-size:38px;font-weight:850;line-height:1.25;margin:6px 0 14px;color:#0b132b'>{html.escape(striped)}</h1>"
@@ -1276,7 +1276,7 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
     if not papers:
         start, end = target_beijing_date_window()
         text = (
-            "World Engine 与 Data Infra 论文日报\n"
+            "World Engine 与 Data Infra 论文周报\n"
             f"筛选时间（北京时间）：{start.strftime('%Y-%m-%d')} 至 {end.strftime('%Y-%m-%d')}\n"
             "今日总篇数：0\n"
             "Top 3（按X/Reddit/GitHub讨论量）：无\n"
@@ -1320,7 +1320,7 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
     if not analyzed:
         start, end = target_beijing_date_window()
         text = (
-            "World Engine 与 Data Infra 论文日报\n"
+            "World Engine 与 Data Infra 论文周报\n"
             f"筛选时间（北京时间）：{start.strftime('%Y-%m-%d')} 至 {end.strftime('%Y-%m-%d')}\n"
             "今日总篇数：0\n"
             "Top 3（按X/Reddit/GitHub讨论量）：无\n"
@@ -1336,7 +1336,7 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
 
     start, end = target_beijing_date_window()
     blocks: List[str] = [
-        "World Engine 与 Data Infra 论文日报",
+        "World Engine 与 Data Infra 论文周报",
         f"筛选时间（北京时间）：{start.strftime('%Y-%m-%d')} 至 {end.strftime('%Y-%m-%d')}",
     ]
     blocks.extend(build_overview_lines(analyzed))
@@ -1355,16 +1355,20 @@ def build_official_monitor_section() -> Tuple[str, str]:
         return "", ""
 
     try:
-        from agent.official_monitor.pipeline import run_pipeline
-        from agent.official_monitor.render import render_markdown, render_html_fragment
+        try:
+            from agent.official_monitor.pipeline import run_pipeline
+            from agent.official_monitor.render import render_markdown, render_html_fragment
+        except ModuleNotFoundError:
+            from official_monitor.pipeline import run_pipeline
+            from official_monitor.render import render_markdown, render_html_fragment
 
         lookback = int(os.environ.get("OFFICIAL_MONITOR_LOOKBACK_DAYS", "7"))
         max_per_source = int(os.environ.get("OFFICIAL_MONITOR_MAX_PER_SOURCE", "20"))
         summary, _, clusters = run_pipeline(lookback_days=lookback, max_articles_per_source=max_per_source)
         if not clusters:
             text = "AI大厂与投资机构官方动态\n过去7天未检索到可用的官方主题动态。"
-            html = "<section style='max-width:1040px;margin:22px auto 0;padding:0 18px 26px;'><h2 style='font-size:28px;color:#ecf3ff;margin:0 0 10px'>AI大厂与投资机构官方动态</h2><p style='font-size:16px;color:#dbe7ff'>过去7天未检索到可用的官方主题动态。</p></section>"
-            return text, html
+            html_block = "<section style='max-width:1040px;margin:22px auto 0;padding:0 18px 26px;'><h2 style='font-size:28px;color:#ecf3ff;margin:0 0 10px'>AI大厂与投资机构官方动态</h2><p style='font-size:16px;color:#dbe7ff'>过去7天未检索到可用的官方主题动态。</p></section>"
+            return text, html_block
 
         md = render_markdown(summary, clusters)
         html_fragment = render_html_fragment(summary, clusters)
@@ -1408,11 +1412,11 @@ def run_once() -> None:
         html_digest = html_digest.replace("</body></html>", official_html + "</body></html>")
     date_str = dt.datetime.now().strftime("%Y-%m-%d")
     send_email(
-        subject=f"[{date_str}] World Engine 与 Data Infra 每日论文简报",
+        subject=f"[{date_str}] World Engine 与 Data Infra 每周论文简报",
         text_body=text_digest,
         html_body=html_digest,
     )
-    print("[OK] daily digest sent")
+    print("[OK] weekly digest sent")
 
 
 def run_scheduler() -> None:
@@ -1422,7 +1426,7 @@ def run_scheduler() -> None:
 
     scheduler = BlockingScheduler(timezone=timezone)
     scheduler.add_job(run_once, "cron", hour=hour, minute=minute)
-    print(f"[INFO] scheduler started, daily at {report_time} ({timezone})")
+    print(f"[INFO] scheduler started, weekly at {report_time} ({timezone})")
     scheduler.start()
 
 

@@ -28,6 +28,55 @@ def _log(event: str, **kwargs) -> None:
     print(json.dumps(payload, ensure_ascii=False))
 
 
+
+
+def _split_cluster_by_signal(cluster: List[NormalizedArticle]) -> List[List[NormalizedArticle]]:
+    buckets: Dict[str, List[NormalizedArticle]] = {}
+    for a in cluster:
+        key = (a.signal_type or '').strip().lower() or 'other'
+        buckets.setdefault(key, []).append(a)
+    groups = [v for v in buckets.values() if v]
+    if len(groups) >= 2:
+        return groups
+    by_inst: Dict[str, List[NormalizedArticle]] = {}
+    for a in cluster:
+        key = (a.company_or_firm_name or '').strip().lower() or 'unknown'
+        by_inst.setdefault(key, []).append(a)
+    groups = [v for v in by_inst.values() if v]
+    if len(groups) >= 2:
+        return groups
+    mid = max(1, len(cluster) // 2)
+    return [cluster[:mid], cluster[mid:]] if len(cluster) > 1 else [cluster]
+
+
+def _rebalance_cluster_count(clusters: List[List[NormalizedArticle]], min_topics: int = 2, max_topics: int = 4) -> List[List[NormalizedArticle]]:
+    clusters = [c for c in clusters if c]
+    if not clusters:
+        return clusters
+
+    # Split when topics are too few and there is enough material.
+    while len(clusters) < min_topics:
+        idx = max(range(len(clusters)), key=lambda i: len(clusters[i]))
+        largest = clusters[idx]
+        if len(largest) < 2:
+            break
+        parts = [x for x in _split_cluster_by_signal(largest) if x]
+        if len(parts) <= 1:
+            break
+        clusters.pop(idx)
+        clusters.extend(parts)
+        if len(clusters) >= min_topics:
+            break
+
+    # Merge when topics are too many.
+    while len(clusters) > max_topics:
+        clusters = sorted(clusters, key=len, reverse=True)
+        tail = clusters.pop()
+        clusters[-1].extend(tail)
+
+    return [sorted(c, key=lambda x: x.importance_score, reverse=True) for c in clusters if c]
+
+
 def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> Tuple[RunSummary, List[NormalizedArticle], List[TopicCluster]]:
     started = now_utc()
     sources = load_sources()
@@ -79,6 +128,7 @@ def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> T
     _log("dedupe_complete", before=len(raw_articles), after=len(deduped))
 
     clusters_raw = cluster_articles(deduped)
+    clusters_raw = _rebalance_cluster_count(clusters_raw, min_topics=2, max_topics=4)
     _log("cluster_counts", clusters=len(clusters_raw))
 
     topic_clusters: List[TopicCluster] = []

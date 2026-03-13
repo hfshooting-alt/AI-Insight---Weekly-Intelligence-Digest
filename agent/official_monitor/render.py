@@ -180,7 +180,8 @@ def render_markdown(run_summary: RunSummary, clusters: List[TopicCluster]) -> st
 
 
 def render_html_fragment(run_summary: RunSummary, clusters: List[TopicCluster]) -> str:
-    selected = sorted(clusters, key=lambda c: (c.topic_priority_score, c.article_count), reverse=True)[:6]
+    selected = sorted(clusters, key=lambda c: (c.topic_priority_score, c.article_count), reverse=True)
+    selected = selected[:4]
     if not selected:
         return (
             "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='margin-top:28px'>"
@@ -218,10 +219,25 @@ def render_html_fragment(run_summary: RunSummary, clusters: List[TopicCluster]) 
                 break
         return picked
 
+    # target total news cards in weekly section: 7-12 when enough data
+    total_available = sum(len(c.supporting_articles) for c in selected)
+    target_total = min(12, max(7, total_available)) if total_available >= 7 else total_available
+    per_theme_quota = {i: 1 for i in range(len(selected))}
+    remaining = max(0, target_total - len(selected))
+    idx = 0
+    while remaining > 0 and selected:
+        i = idx % len(selected)
+        if per_theme_quota[i] < len(selected[i].supporting_articles):
+            per_theme_quota[i] += 1
+            remaining -= 1
+        idx += 1
+        if idx > 400:
+            break
+
     theme_blocks = []
-    for c in selected:
+    for i, c in enumerate(selected):
         article_cards = []
-        for a in pick_supporting_articles(c.supporting_articles, limit=6):
+        for a in pick_supporting_articles(c.supporting_articles, limit=per_theme_quota.get(i, 1)):
             article_cards.append(
                 f"""
                 <tr><td style='padding:0 0 10px 0'>

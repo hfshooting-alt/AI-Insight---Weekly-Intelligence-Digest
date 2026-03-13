@@ -1313,7 +1313,7 @@ def to_html(report_text: str) -> str:
               <table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='background:#FFFFFF;border:1px solid #E5E7EB;border-radius:16px;box-shadow:0 4px 16px rgba(15,23,42,0.04)'>
                 <tr><td style='padding:24px'>
                   <div style='font-size:19px;line-height:1.45;font-weight:700;color:#111827;margin-bottom:8px'>{html.escape(p.get('title',''))}</div>
-                  <div style='font-size:13px;color:#6B7280;line-height:1.7;margin-bottom:12px'>发布时间：{html.escape(p.get('published',''))} ｜ 作者：{html.escape(p.get('author',''))} ｜ {link_html}</div>
+                  <div style='font-size:13px;color:#6B7280;line-height:1.7;margin-bottom:12px'>作者：{html.escape(p.get('author',''))} ｜ {link_html}</div>
 
                   <div style='background:#F8FAFC;border:1px solid #E5E7EB;border-radius:12px;padding:12px 14px;margin-bottom:10px'>
                     <div style='font-size:14px;font-weight:600;color:#111827;margin-bottom:4px'>论文想解决什么问题、该问题为什么重要</div>
@@ -1343,7 +1343,6 @@ def to_html(report_text: str) -> str:
 
     overview_row = f"""
       <tr><td style='padding:0 0 8px 0;font-size:16px;line-height:1.7;color:#111827'><span style='font-weight:600'>筛选时间：</span>{html.escape(period or '未披露')}</td></tr>
-      <tr><td style='padding:0 0 8px 0;font-size:16px;line-height:1.7;color:#111827'><span style='font-weight:600'>本周总篇数：</span>{html.escape(overview['本周总篇数'])}</td></tr>
       <tr><td style='padding:0 0 8px 0;font-size:16px;line-height:1.7;color:#111827'><span style='font-weight:600'>Top 3 论文：</span>{html.escape(overview['Top 3 论文'])}</td></tr>
       <tr><td style='padding:0 0 8px 0;font-size:16px;line-height:1.7;color:#111827'><span style='font-weight:600'>本周趋势：</span>{html.escape(overview['本周趋势'])}</td></tr>
       <tr><td style='padding:0;font-size:16px;line-height:1.7;color:#111827'><span style='font-weight:600'>总体判断：</span>{html.escape(overview['总体判断'])}</td></tr>
@@ -1359,7 +1358,6 @@ def to_html(report_text: str) -> str:
 
             <table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='background:#F8FAFC;border:1px solid #E5E7EB;border-radius:16px'>
               <tr><td style='padding:24px'>
-                <div style='font-size:12px;font-weight:600;color:#2563EB;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px'>Weekly Intelligence Digest</div>
                 <div style='font-size:34px;line-height:1.2;font-weight:700;color:#111827;margin-bottom:8px'>{html.escape(title)}</div>
                 <div style='font-size:16px;line-height:1.7;font-weight:500;color:#4B5563'>{html.escape(subtitle)}</div>
               </td></tr>

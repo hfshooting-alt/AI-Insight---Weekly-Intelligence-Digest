@@ -14,7 +14,13 @@ from .fetch import fetch_url
 from .models import NormalizedArticle, RunSummary, TopicCluster
 from .render import source_link_markdown
 from .sources import load_sources
-from .summarize import infer_entities, summarize_article_zh, summarize_cluster_event_zh
+from .summarize import (
+    infer_entities,
+    summarize_article_zh,
+    summarize_article_with_llm,
+    summarize_cluster_event_zh,
+    summarize_with_llm,
+)
 
 
 def _log(event: str, **kwargs) -> None:
@@ -78,11 +84,15 @@ def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> T
     topic_clusters: List[TopicCluster] = []
     for idx, cl in enumerate(clusters_raw, start=1):
         meta = build_topic_meta(cl, idx)
-        event_summary, strategic_signal = summarize_cluster_event_zh(cl, meta["topic_keywords"])
+        llm_cluster_summary = summarize_with_llm(cl, meta["topic_keywords"])
+        if llm_cluster_summary:
+            event_summary, strategic_signal = llm_cluster_summary
+        else:
+            event_summary, strategic_signal = summarize_cluster_event_zh(cl, meta["topic_keywords"])
         supporting = []
         for a in sorted(cl, key=lambda x: x.importance_score, reverse=True):
             a.topic_cluster_id = meta["topic_cluster_id"]
-            a.article_summary_zh = summarize_article_zh(a)
+            a.article_summary_zh = summarize_article_with_llm(a) or summarize_article_zh(a)
             link = source_link_markdown(a.company_or_firm_name, a.url)
             supporting.append(
                 {

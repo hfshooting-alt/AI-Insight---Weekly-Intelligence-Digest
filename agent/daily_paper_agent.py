@@ -1172,7 +1172,7 @@ def render_paper_block(index: int, item: AnalyzedPaper, parsed: Dict[str, str], 
 
 def fallback_structured_analysis(paper: Paper, category: str, reason: str = "") -> Dict[str, str]:
     abstract = (paper.abstract or "").strip()
-    short_abstract = abstract[:220] + ("…" if len(abstract) > 220 else "") if abstract else ""
+    short_abstract = abstract if abstract else ""
     no_data_msg = "本条未能抓取到稳定正文，以下结论基于题目与摘要，需后续复核。"
     reason_text = f"（{reason}）" if reason else ""
     return {
@@ -1268,7 +1268,7 @@ def to_html(report_text: str) -> str:
                 "value": "",
                 "risk": "",
             }
-        elif ln.startswith("论文") and "：" in ln:
+        elif re.match(r"^论文\d+：", ln):
             if current:
                 papers.append(current)
             current = {
@@ -1366,7 +1366,7 @@ def to_html(report_text: str) -> str:
             </table>
 
             <div style='height:32px'></div>
-            <div style='font-size:24px;font-weight:700;color:#111827;margin-bottom:12px'>Weekly Overview</div>
+            <div style='font-size:24px;font-weight:700;color:#111827;margin-bottom:12px;text-align:center'>Weekly Overview</div>
             <table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='background:#FFFFFF;border:1px solid #E5E7EB;border-radius:16px'>
               <tr><td style='padding:20px 22px'>
                 <table role='presentation' width='100%' cellspacing='0' cellpadding='0'>{overview_row}</table>
@@ -1374,7 +1374,7 @@ def to_html(report_text: str) -> str:
             </table>
 
             <div style='height:32px'></div>
-            <div style='font-size:24px;font-weight:700;color:#111827;margin-bottom:12px'>论文详解</div>
+            <div style='font-size:24px;font-weight:700;color:#111827;margin-bottom:12px;text-align:center'>论文详解</div>
             <table role='presentation' width='100%' cellspacing='0' cellpadding='0'>{''.join(detail_cards) if detail_cards else "<tr><td style='font-size:16px;line-height:1.7;color:#4B5563'>本期暂无可解析论文。</td></tr>"}</table>
 
             <div style='height:18px'></div>

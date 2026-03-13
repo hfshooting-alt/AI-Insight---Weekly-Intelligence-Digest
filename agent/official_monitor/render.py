@@ -191,14 +191,9 @@ def render_html_fragment(run_summary: RunSummary, clusters: List[TopicCluster]) 
         )
 
     weekly_judgment = selected[0].event_summary
-    if len(weekly_judgment) > 140:
-        weekly_judgment = weekly_judgment[:140] + "…"
 
     def theme_lead(c: TopicCluster) -> str:
-        lead = c.strategic_signal or ""
-        if len(lead) > 56:
-            lead = lead[:56] + "…"
-        return lead
+        return c.strategic_signal or ""
 
     theme_blocks = []
     for c in selected:
@@ -211,7 +206,7 @@ def render_html_fragment(run_summary: RunSummary, clusters: List[TopicCluster]) 
                     <tr><td style='padding:14px 14px 12px'>
                       <div style='font-size:18px;line-height:1.45;font-weight:700;color:#111827;margin-bottom:6px'>{escape(a.get('title',''))}</div>
                       <div style='font-size:16px;line-height:1.7;color:#111827;margin-bottom:8px'>{escape(a.get('article_summary_zh',''))}</div>
-                      <div style='font-size:13px;line-height:1.6;color:#4B5563'>来源：<a href='{escape(a.get('url',''))}' style='color:#2563EB;text-decoration:none'>{escape(a.get('source_link_markdown',''))}</a></div>
+                      <div style='font-size:13px;line-height:1.6;color:#4B5563'>来源：<a href='{escape(a.get('url',''))}' style='color:#2563EB;text-decoration:none'>@{escape(a.get('institution_name','官方来源'))}（原文链接）</a></div>
                     </td></tr>
                   </table>
                 </td></tr>
@@ -237,9 +232,9 @@ def render_html_fragment(run_summary: RunSummary, clusters: List[TopicCluster]) 
     return f"""
     <table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='margin-top:30px'>
       <tr><td style='background:#FFFFFF;border:1px solid #E5E7EB;border-radius:16px;padding:24px'>
-        <div style='font-size:12px;font-weight:600;color:#2563EB;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px'>Weekly Brief</div>
-        <div style='font-size:24px;line-height:1.25;font-weight:700;color:#111827;margin-bottom:8px'>本周 AI 官方信号图谱</div>
-        <div style='font-size:14px;line-height:1.6;color:#4B5563;margin-bottom:12px'>来自 AI 大厂与投资机构官网的主题归纳</div>
+        <div style='font-size:12px;font-weight:600;color:#2563EB;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px;text-align:center'>Weekly Brief</div>
+        <div style='font-size:24px;line-height:1.25;font-weight:700;color:#111827;margin-bottom:8px;text-align:center'>本周 AI 官方信号图谱</div>
+        <div style='font-size:14px;line-height:1.6;color:#4B5563;margin-bottom:12px;text-align:center'>来自 AI 大厂与投资机构官网的主题归纳</div>
         <div style='background:#EFF6FF;border-left:3px solid #2563EB;border-radius:10px;padding:10px 12px;margin-bottom:14px'>
           <div style='font-size:14px;font-weight:600;color:#1E3A8A;margin-bottom:3px'>本周判断</div>
           <div style='font-size:16px;line-height:1.7;color:#111827'>{escape(weekly_judgment)}</div>

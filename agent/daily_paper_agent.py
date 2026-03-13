@@ -1310,7 +1310,7 @@ def to_html(report_text: str) -> str:
         detail_cards.append(
             f"""
             <tr><td style='padding:0 0 16px 0'>
-              <table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='background:#FFFFFF;border:1px solid #E5E7EB;border-radius:16px'>
+              <table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='background:#FFFFFF;border:1px solid #E5E7EB;border-radius:16px;box-shadow:0 4px 16px rgba(15,23,42,0.04)'>
                 <tr><td style='padding:24px'>
                   <div style='font-size:19px;line-height:1.45;font-weight:700;color:#111827;margin-bottom:8px'>{html.escape(p.get('title',''))}</div>
                   <div style='font-size:13px;color:#6B7280;line-height:1.7;margin-bottom:12px'>发布时间：{html.escape(p.get('published',''))} ｜ 作者：{html.escape(p.get('author',''))} ｜ {link_html}</div>
@@ -1354,7 +1354,7 @@ def to_html(report_text: str) -> str:
   <body style='margin:0;padding:0;background:#F5F7FA;font-family:Inter,SF Pro Display,PingFang SC,Microsoft YaHei,Arial,sans-serif;color:#111827'>
     <table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='background:#F5F7FA'>
       <tr><td align='center' style='padding:24px 12px'>
-        <table role='presentation' width='720' cellspacing='0' cellpadding='0' style='width:720px;max-width:720px;background:#FFFFFF;border:1px solid #E5E7EB;border-radius:16px'>
+        <table role='presentation' width='720' cellspacing='0' cellpadding='0' style='width:720px;max-width:720px;background:#FFFFFF;border:1px solid #E5E7EB;border-radius:16px;box-shadow:0 8px 28px rgba(15,23,42,0.06)'>
           <tr><td style='padding:32px'>
 
             <table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='background:#F8FAFC;border:1px solid #E5E7EB;border-radius:16px'>
@@ -1366,7 +1366,7 @@ def to_html(report_text: str) -> str:
             </table>
 
             <div style='height:32px'></div>
-            <div style='font-size:24px;font-weight:700;color:#111827;margin-bottom:12px;text-align:center'>Weekly Overview</div>
+            <div style='font-size:12px;font-weight:600;color:#2563EB;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px;text-align:center'>Overview</div><div style='font-size:24px;font-weight:700;color:#111827;margin-bottom:12px;text-align:center'>Weekly Overview</div>
             <table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='background:#FFFFFF;border:1px solid #E5E7EB;border-radius:16px'>
               <tr><td style='padding:20px 22px'>
                 <table role='presentation' width='100%' cellspacing='0' cellpadding='0'>{overview_row}</table>
@@ -1374,7 +1374,7 @@ def to_html(report_text: str) -> str:
             </table>
 
             <div style='height:32px'></div>
-            <div style='font-size:24px;font-weight:700;color:#111827;margin-bottom:12px;text-align:center'>论文详解</div>
+            <div style='font-size:12px;font-weight:600;color:#2563EB;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px;text-align:center'>Paper Deep Dive</div><div style='font-size:24px;font-weight:700;color:#111827;margin-bottom:12px;text-align:center'>论文详解</div>
             <table role='presentation' width='100%' cellspacing='0' cellpadding='0'>{''.join(detail_cards) if detail_cards else "<tr><td style='font-size:16px;line-height:1.7;color:#4B5563'>本期暂无可解析论文。</td></tr>"}</table>
 
             <div style='height:32px'></div>

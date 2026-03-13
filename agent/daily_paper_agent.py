@@ -298,6 +298,23 @@ def is_domain_relevant(title: str, abstract: str) -> bool:
     return world_ok or infra_ok
 
 
+def is_domain_relevant_soft(title: str, abstract: str) -> bool:
+    hay = normalize(f"{title} {abstract}")
+    if any(normalize(kw) in hay for kw in EXCLUDED_NON_TECH_KEYWORDS):
+        return False
+    if sum(1 for kw in IRRELEVANT_HINT_KEYWORDS if normalize(kw) in hay) >= 2:
+        return False
+
+    world_anchor_hit = sum(1 for kw in CORE_WORLD_ANCHORS if normalize(kw) in hay)
+    infra_anchor_hit = sum(1 for kw in CORE_INFRA_ANCHORS if normalize(kw) in hay)
+    world_hit = sum(1 for kw in WORLD_STRICT_KEYWORDS if normalize(kw) in hay)
+    infra_hit = sum(1 for kw in INFRA_STRICT_KEYWORDS if normalize(kw) in hay)
+    physical_ai_hit = sum(1 for kw in PHYSICAL_AI_CONTEXT_KEYWORDS if normalize(kw) in hay)
+    focus_hit = sum(1 for kw in FOCUS_BUSINESS_KEYWORDS if normalize(kw) in hay)
+
+    return (world_anchor_hit + infra_anchor_hit) >= 1 and (world_hit + infra_hit + physical_ai_hit + focus_hit) >= 2
+
+
 def fetch_arxiv() -> List[Paper]:
     query = " OR ".join([f'all:"{term}"' for term in SEARCH_TERMS])
     url = (
@@ -556,9 +573,19 @@ def dedup_rank(papers: Iterable[Paper]) -> List[Paper]:
         ):
             dedup[key] = p
 
-    filtered = [p for p in dedup.values() if is_domain_relevant(p.title, p.abstract)]
-    filtered.sort(key=lambda x: (topical_score(x.title, x.abstract), x.published), reverse=True)
-    return filtered
+    strict_filtered = [p for p in dedup.values() if is_domain_relevant(p.title, p.abstract)]
+    if len(strict_filtered) >= 3:
+        strict_filtered.sort(key=lambda x: (topical_score(x.title, x.abstract), x.published), reverse=True)
+        return strict_filtered
+
+    soft_filtered = [p for p in dedup.values() if is_domain_relevant_soft(p.title, p.abstract)]
+    if soft_filtered:
+        print(f"[WARN] strict domain filter kept {len(strict_filtered)} papers; relaxed fallback kept {len(soft_filtered)}")
+        soft_filtered.sort(key=lambda x: (topical_score(x.title, x.abstract), x.published), reverse=True)
+        return soft_filtered
+
+    strict_filtered.sort(key=lambda x: (topical_score(x.title, x.abstract), x.published), reverse=True)
+    return strict_filtered
 
 
 

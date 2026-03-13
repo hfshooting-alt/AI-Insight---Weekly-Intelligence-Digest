@@ -26,29 +26,27 @@ from openai import OpenAI
 BEIJING_TZ = dt.timezone(dt.timedelta(hours=8))
 
 SEARCH_TERMS = [
-    "world engine",
-    "world model",
-    "world simulator",
-    "digital twin",
-    "synthetic data",
-    "simulation data",
-    "data infrastructure",
-    "data ingestion",
-    "data pipeline",
-    "data processing",
-    "data lakehouse",
-    "agent simulation",
-    "knowledge graph infrastructure",
+    "physical ai data infrastructure",
+    "embodied ai data pipeline",
+    "robotics data engine",
+    "sim2real data pipeline",
+    "autonomous driving data infrastructure",
+    "3d perception data pipeline",
+    "lidar data pipeline",
+    "sensor fusion dataset pipeline",
+    "world model for robotics",
+    "robot simulation data",
 ]
 
 TOPIC_KEYWORDS = SEARCH_TERMS + [
-    "世界引擎",
+    "具身智能数据基础设施",
+    "机器人数据管道",
+    "自动驾驶数据基础设施",
+    "3d感知数据",
+    "激光雷达数据",
+    "传感器融合数据",
+    "仿真到现实数据",
     "世界模型",
-    "合成数据",
-    "数据基础设施",
-    "数据采集",
-    "数据处理",
-    "仿真",
 ]
 
 WORLD_STRICT_KEYWORDS = [
@@ -83,7 +81,7 @@ INVESTMENT_TECH_KEYWORDS = [
 ]
 
 EXCLUDED_NON_TECH_KEYWORDS = [
-    "art", "artist", "mural", "museum", "heritage", "aesthetics", "culture", "curation",
+    "art", "artist", "mural", "museum", "heritage", "aesthetics", "culture",
     "filipino", "humanities", "literature", "music", "dance", "painting", "exhibition",
     "艺术", "壁画", "博物馆", "文化", "文学", "音乐", "舞蹈", "展览", "美学",
 ]
@@ -97,6 +95,15 @@ CORE_INFRA_ANCHORS = [
     "stream processing", "batch processing", "etl", "data orchestration", "数据基础设施", "数据管道", "湖仓",
 ]
 
+PHYSICAL_AI_MUST_HAVE = [
+    "physical ai", "embodied", "embodied ai", "robot", "robotics", "autonomous driving", "self-driving",
+    "sim2real", "具身", "具身智能", "机器人", "自动驾驶", "物理智能",
+]
+
+DATA_INFRA_MUST_HAVE = [
+    "data infra", "data infrastructure", "data pipeline", "data ingestion", "feature store", "lakehouse",
+    "dataset", "data engine", "数据基础设施", "数据管道", "数据引擎", "数据集", "湖仓",
+]
 
 PHYSICAL_AI_CONTEXT_KEYWORDS = [
     "embodied", "robot", "robotics", "autonomous driving", "self-driving", "carla", "airsim", "gazebo",
@@ -126,12 +133,10 @@ WEAK_DOMAIN_EXCLUDE_KEYWORDS = [
 ]
 
 RSS_SOURCES = {
-    "Nature": "https://www.nature.com/nature.rss",
-    "Science": "https://www.science.org/action/showFeed?type=etoc&feed=rss&jc=science",
-    "PNAS": "https://www.pnas.org/action/showFeed?type=etoc&feed=rss&jc=pnas",
-    "PLOS ONE": "https://journals.plos.org/plosone/feed/atom",
-    "bioRxiv": "https://connect.biorxiv.org/relate/feed/181",
-    "medRxiv": "https://connect.medrxiv.org/relate/feed/181",
+    "arXiv cs.RO": "http://export.arxiv.org/rss/cs.RO",
+    "arXiv cs.CV": "http://export.arxiv.org/rss/cs.CV",
+    "arXiv cs.AI": "http://export.arxiv.org/rss/cs.AI",
+    "OpenReview Robotics": "https://openreview.net/group?id=roboticsfoundation.org/feed",
 }
 
 REQUEST_HEADERS = {
@@ -278,16 +283,25 @@ def beijing_day_window() -> Tuple[str, str]:
 def topical_score(title: str, abstract: str) -> int:
     hay = normalize(f"{title} {abstract}")
     base = sum(1 for kw in TOPIC_KEYWORDS if normalize(kw) in hay)
-    world_hit = sum(1 for kw in WORLD_STRICT_KEYWORDS if normalize(kw) in hay)
-    infra_hit = sum(1 for kw in INFRA_STRICT_KEYWORDS if normalize(kw) in hay)
-    tech_hit = sum(1 for kw in INVESTMENT_TECH_KEYWORDS if normalize(kw) in hay)
+    infra_hit = sum(1 for kw in (INFRA_STRICT_KEYWORDS + CORE_INFRA_ANCHORS + DATA_INFRA_MUST_HAVE) if normalize(kw) in hay)
+    physical_hit = sum(1 for kw in (PHYSICAL_AI_CONTEXT_KEYWORDS + PHYSICAL_AI_MUST_HAVE) if normalize(kw) in hay)
+    focus_hit = sum(1 for kw in FOCUS_BUSINESS_KEYWORDS if normalize(kw) in hay)
     penalty = sum(1 for kw in IRRELEVANT_HINT_KEYWORDS if normalize(kw) in hay)
     exclude = sum(1 for kw in EXCLUDED_NON_TECH_KEYWORDS if normalize(kw) in hay)
-    return base + world_hit * 3 + infra_hit * 3 + tech_hit - penalty * 3 - exclude * 4
+    miss_penalty = 8 if not (physical_hit >= 1 and infra_hit >= 1) else 0
+    return base + infra_hit * 4 + physical_hit * 4 + focus_hit * 3 - penalty * 3 - exclude * 4 - miss_penalty
+
+
+def is_physical_ai_data_infra_focus(text: str) -> bool:
+    hay = normalize(text or "")
+    physical_hit = sum(1 for kw in (PHYSICAL_AI_MUST_HAVE + PHYSICAL_AI_CONTEXT_KEYWORDS) if normalize(kw) in hay)
+    infra_hit = sum(1 for kw in (DATA_INFRA_MUST_HAVE + CORE_INFRA_ANCHORS + INFRA_STRICT_KEYWORDS) if normalize(kw) in hay)
+    focus_hit = sum(1 for kw in FOCUS_BUSINESS_KEYWORDS if normalize(kw) in hay)
+    return physical_hit >= 1 and infra_hit >= 1 and (focus_hit >= 1 or infra_hit >= 2)
 
 
 def is_domain_relevant(title: str, abstract: str) -> bool:
-    """Strict but simple: lock on world-model / infra + physical-3D focus."""
+    """Strictly keep only Physical AI / Embodied AI data-infra papers."""
     hay = normalize(f"{title} {abstract}")
     if any(normalize(kw) in hay for kw in EXCLUDED_NON_TECH_KEYWORDS):
         return False
@@ -295,12 +309,7 @@ def is_domain_relevant(title: str, abstract: str) -> bool:
         return False
     if sum(1 for kw in WEAK_DOMAIN_EXCLUDE_KEYWORDS if normalize(kw) in hay) >= 1:
         return False
-
-    core_hit = sum(1 for kw in (CORE_WORLD_ANCHORS + CORE_INFRA_ANCHORS) if normalize(kw) in hay)
-    focus_hit = sum(1 for kw in FOCUS_BUSINESS_KEYWORDS if normalize(kw) in hay)
-    physical_hit = sum(1 for kw in PHYSICAL_AI_CONTEXT_KEYWORDS if normalize(kw) in hay)
-
-    return (core_hit >= 1 and (focus_hit + physical_hit) >= 2) or focus_hit >= 2
+    return is_physical_ai_data_infra_focus(hay)
 
 
 def is_domain_relevant_soft(title: str, abstract: str) -> bool:
@@ -309,9 +318,9 @@ def is_domain_relevant_soft(title: str, abstract: str) -> bool:
         return False
     if sum(1 for kw in IRRELEVANT_HINT_KEYWORDS if normalize(kw) in hay) >= 1:
         return False
-    core_hit = sum(1 for kw in (CORE_WORLD_ANCHORS + CORE_INFRA_ANCHORS) if normalize(kw) in hay)
-    focus_hit = sum(1 for kw in FOCUS_BUSINESS_KEYWORDS if normalize(kw) in hay)
-    return core_hit >= 1 or focus_hit >= 1
+    physical_hit = sum(1 for kw in (PHYSICAL_AI_MUST_HAVE + PHYSICAL_AI_CONTEXT_KEYWORDS) if normalize(kw) in hay)
+    infra_hit = sum(1 for kw in (DATA_INFRA_MUST_HAVE + CORE_INFRA_ANCHORS + INFRA_STRICT_KEYWORDS) if normalize(kw) in hay)
+    return physical_hit >= 1 and infra_hit >= 1
 
 
 def fetch_arxiv() -> List[Paper]:
@@ -587,9 +596,9 @@ def dedup_rank(papers: Iterable[Paper]) -> List[Paper]:
     # final fallback: keep strongly topical papers while still removing clearly irrelevant ones
     fallback = [
         p for p in dedup.values()
-        if topical_score(p.title, p.abstract) > 0
-        and not any(normalize(k) in normalize(f"{p.title} {p.abstract}") for k in EXCLUDED_NON_TECH_KEYWORDS)
-        and sum(1 for k in IRRELEVANT_HINT_KEYWORDS if normalize(k) in normalize(f"{p.title} {p.abstract}")) == 0
+        if is_domain_relevant_soft(p.title, p.abstract)
+        and topical_score(p.title, p.abstract) > 0
+        and is_physical_ai_data_infra_focus(f"{p.title} {p.abstract}")
     ]
     fallback.sort(key=lambda x: (topical_score(x.title, x.abstract), x.published), reverse=True)
     if fallback:

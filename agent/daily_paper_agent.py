@@ -1184,6 +1184,15 @@ def fallback_structured_analysis(paper: Paper, category: str, reason: str = "") 
     }
 
 
+def ensure_structured_analysis_content(parsed: Dict[str, str], paper: Paper, category: str) -> Dict[str, str]:
+    fallback = fallback_structured_analysis(paper, category, reason="结构化字段缺失")
+    out: Dict[str, str] = {}
+    for k, fv in fallback.items():
+        value = (parsed.get(k) or "").strip()
+        out[k] = value if value else fv
+    return out
+
+
 def build_overview_lines(items: List[AnalyzedPaper]) -> List[str]:
     if not items:
         return [
@@ -1422,7 +1431,7 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
         if analysis_context:
             try:
                 raw = analyze_paper(client, paper, category, analysis_context)
-                parsed = parse_structured_analysis(raw)
+                parsed = ensure_structured_analysis_content(parse_structured_analysis(raw), paper, category)
             except Exception as exc:
                 parsed = fallback_structured_analysis(paper, category, reason=f"LLM解析失败：{exc}")
         else:
@@ -1537,7 +1546,10 @@ def run_once() -> None:
     if official_text:
         text_digest = text_digest + "\n\n" + official_text
     if official_html:
-        html_digest = html_digest.replace("</body></html>", official_html + "</body></html>")
+        if "</body>" in html_digest:
+            html_digest = html_digest.replace("</body>", official_html + "</body>", 1)
+        else:
+            html_digest += official_html
     date_str = dt.datetime.now().strftime("%Y-%m-%d")
     send_email(
         subject=f"[{date_str}] World Engine 与 Data Infra 每周论文简报",

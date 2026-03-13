@@ -113,6 +113,13 @@ FOCUS_BUSINESS_KEYWORDS = [
     "机器人学习", "自动驾驶", "仿真", "数字孪生",
 ]
 
+
+STRONG_FOCUS_KEYWORDS = [
+    "3d perception", "3d sensing", "3d reconstruction", "3d modeling", "point cloud", "lidar", "sensor fusion",
+    "slam", "sim2real", "physical ai", "embodied ai", "robotics", "autonomous driving", "self-driving",
+    "3d感知", "三维感知", "三维建模", "点云", "激光雷达", "传感器融合", "具身智能", "物理智能", "自动驾驶", "机器人",
+]
+
 WEAK_DOMAIN_EXCLUDE_KEYWORDS = [
     "condition monitoring", "mechanical fault", "impeller", "bearing fault", "corrosion", "pump failure",
     "predictive maintenance", "iot-enabled", "叶轮", "腐蚀", "机油", "盐水", "故障诊断",
@@ -280,6 +287,7 @@ def is_domain_relevant(title: str, abstract: str) -> bool:
     tech_hit = sum(1 for kw in INVESTMENT_TECH_KEYWORDS if normalize(kw) in hay)
     physical_ai_hit = sum(1 for kw in PHYSICAL_AI_CONTEXT_KEYWORDS if normalize(kw) in hay)
     focus_hit = sum(1 for kw in FOCUS_BUSINESS_KEYWORDS if normalize(kw) in hay)
+    strong_focus_hit = sum(1 for kw in STRONG_FOCUS_KEYWORDS if normalize(kw) in hay)
     weak_exclude_hit = sum(1 for kw in WEAK_DOMAIN_EXCLUDE_KEYWORDS if normalize(kw) in hay)
     excluded = any(normalize(kw) in hay for kw in EXCLUDED_NON_TECH_KEYWORDS)
     penalty = sum(1 for kw in IRRELEVANT_HINT_KEYWORDS if normalize(kw) in hay)
@@ -290,9 +298,9 @@ def is_domain_relevant(title: str, abstract: str) -> bool:
     world_ok = world_anchor_hit >= 1 and (world_hit + tech_hit + physical_ai_hit + focus_hit) >= 4
     infra_ok = infra_anchor_hit >= 1 and physical_ai_hit >= 1 and (infra_hit + tech_hit + focus_hit) >= 4
 
-    if focus_hit <= 0:
+    if strong_focus_hit <= 0:
         return False
-    if weak_exclude_hit >= 2 and focus_hit < 2:
+    if weak_exclude_hit >= 1:
         return False
 
     return world_ok or infra_ok
@@ -302,7 +310,9 @@ def is_domain_relevant_soft(title: str, abstract: str) -> bool:
     hay = normalize(f"{title} {abstract}")
     if any(normalize(kw) in hay for kw in EXCLUDED_NON_TECH_KEYWORDS):
         return False
-    if sum(1 for kw in IRRELEVANT_HINT_KEYWORDS if normalize(kw) in hay) >= 2:
+    if sum(1 for kw in IRRELEVANT_HINT_KEYWORDS if normalize(kw) in hay) >= 1:
+        return False
+    if sum(1 for kw in WEAK_DOMAIN_EXCLUDE_KEYWORDS if normalize(kw) in hay) >= 1:
         return False
 
     world_anchor_hit = sum(1 for kw in CORE_WORLD_ANCHORS if normalize(kw) in hay)
@@ -310,9 +320,9 @@ def is_domain_relevant_soft(title: str, abstract: str) -> bool:
     world_hit = sum(1 for kw in WORLD_STRICT_KEYWORDS if normalize(kw) in hay)
     infra_hit = sum(1 for kw in INFRA_STRICT_KEYWORDS if normalize(kw) in hay)
     physical_ai_hit = sum(1 for kw in PHYSICAL_AI_CONTEXT_KEYWORDS if normalize(kw) in hay)
-    focus_hit = sum(1 for kw in FOCUS_BUSINESS_KEYWORDS if normalize(kw) in hay)
+    strong_focus_hit = sum(1 for kw in STRONG_FOCUS_KEYWORDS if normalize(kw) in hay)
 
-    return (world_anchor_hit + infra_anchor_hit) >= 1 and (world_hit + infra_hit + physical_ai_hit + focus_hit) >= 2
+    return strong_focus_hit >= 1 and (world_anchor_hit + infra_anchor_hit + world_hit + infra_hit + physical_ai_hit) >= 2
 
 
 def fetch_arxiv() -> List[Paper]:
@@ -1065,9 +1075,10 @@ def build_prompt(paper: Paper, category: str, fulltext_context: str) -> str:
 
         你的要求：
         1) 只写标题、摘要、正文里明确支持的信息，不做猜测。
-        2) 语言要短句、易懂、少术语。
-        3) 如果某项在原文缺失，直接写“原文未明确说明”。
-        4) 每一行必须是完整句，不能半句收尾。
+        2) 用“说人话”的方式解释，假设读者不是AI专业；术语出现时要顺手解释一句。
+        3) 每段先讲结论，再补一句原因/证据，避免空泛。
+        4) 如果某项在原文缺失，直接写“原文未明确说明”。
+        5) 每一行必须是完整句，不能半句收尾。
 
         严格输出以下五行，不要输出其它字段：
         论文想解决什么问题、该问题为什么重要：<2-3句>
@@ -1275,6 +1286,12 @@ def build_overview_lines(items: List[AnalyzedPaper]) -> List[str]:
 def to_html(report_text: str) -> str:
     lines = [ln.strip() for ln in report_text.splitlines() if ln.strip()]
 
+    def pretty_text(val: str) -> str:
+        t = html.escape((val or "").strip())
+        t = re.sub(r"([。！？；])", r"\1<br/>", t)
+        t = re.sub(r"(<br/>)+$", "", t)
+        return t
+
     title = "AI Insight - Weekly Intelligence Digest"
     subtitle = "Stay Hungry, Stay Foolish!"
     period = ""
@@ -1366,23 +1383,23 @@ def to_html(report_text: str) -> str:
 
                   <div style='background:#F8FAFC;border:1px solid #E5E7EB;border-radius:12px;padding:12px 14px;margin-bottom:10px'>
                     <div style='font-size:14px;font-weight:600;color:#111827;margin-bottom:4px'>论文想解决什么问题、该问题为什么重要</div>
-                    <div style='font-size:16px;line-height:1.7;color:#111827'>{html.escape(p.get('problem',''))}</div>
+                    <div style='font-size:17px;line-height:1.82;color:#111827'>{pretty_text(p.get('problem',''))}</div>
                   </div>
                   <div style='background:#F8FAFC;border:1px solid #E5E7EB;border-radius:12px;padding:12px 14px;margin-bottom:10px'>
                     <div style='font-size:14px;font-weight:600;color:#111827;margin-bottom:4px'>论文的核心方法是什么、和以前相比如何创新</div>
-                    <div style='font-size:16px;line-height:1.7;color:#111827'>{html.escape(p.get('method',''))}</div>
+                    <div style='font-size:17px;line-height:1.82;color:#111827'>{pretty_text(p.get('method',''))}</div>
                   </div>
                   <div style='background:#F8FAFC;border:1px solid #E5E7EB;border-radius:12px;padding:12px 14px;margin-bottom:10px'>
                     <div style='font-size:14px;font-weight:600;color:#111827;margin-bottom:4px'>论文的核心结论</div>
-                    <div style='font-size:16px;line-height:1.7;color:#111827'>{html.escape(p.get('conclusion',''))}</div>
+                    <div style='font-size:17px;line-height:1.82;color:#111827'>{pretty_text(p.get('conclusion',''))}</div>
                   </div>
                   <div style='background:#F8FAFC;border:1px solid #E5E7EB;border-radius:12px;padding:12px 14px;margin-bottom:10px'>
                     <div style='font-size:14px;font-weight:600;color:#111827;margin-bottom:4px'>论文的增量价值是什么、会带来什么影响</div>
-                    <div style='font-size:16px;line-height:1.7;color:#111827'>{html.escape(p.get('value',''))}</div>
+                    <div style='font-size:17px;line-height:1.82;color:#111827'>{pretty_text(p.get('value',''))}</div>
                   </div>
                   <div style='background:#F8FAFC;border:1px solid #E5E7EB;border-radius:12px;padding:12px 14px'>
                     <div style='font-size:14px;font-weight:600;color:#111827;margin-bottom:4px'>论文的局限性和不确定性、没有解决什么问题</div>
-                    <div style='font-size:16px;line-height:1.7;color:#111827'>{html.escape(p.get('risk',''))}</div>
+                    <div style='font-size:17px;line-height:1.82;color:#111827'>{pretty_text(p.get('risk',''))}</div>
                   </div>
                 </td></tr>
               </table>

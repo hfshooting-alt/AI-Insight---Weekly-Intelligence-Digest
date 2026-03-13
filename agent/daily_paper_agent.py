@@ -1327,8 +1327,8 @@ def to_html(report_text: str) -> str:
                     <div style='font-size:14px;font-weight:600;color:#111827;margin-bottom:4px'>论文的核心结论</div>
                     <div style='font-size:16px;line-height:1.7;color:#111827'>{html.escape(p.get('conclusion',''))}</div>
                   </div>
-                  <div style='background:#EFF6FF;border-left:3px solid #2563EB;border-radius:10px;padding:10px 12px;margin-bottom:10px'>
-                    <div style='font-size:14px;font-weight:600;color:#1E3A8A;margin-bottom:3px'>论文的增量价值是什么、会带来什么影响</div>
+                  <div style='background:#F8FAFC;border:1px solid #E5E7EB;border-radius:12px;padding:12px 14px;margin-bottom:10px'>
+                    <div style='font-size:14px;font-weight:600;color:#111827;margin-bottom:4px'>论文的增量价值是什么、会带来什么影响</div>
                     <div style='font-size:16px;line-height:1.7;color:#111827'>{html.escape(p.get('value',''))}</div>
                   </div>
                   <div style='background:#F8FAFC;border:1px solid #E5E7EB;border-radius:12px;padding:12px 14px'>
@@ -1376,6 +1376,9 @@ def to_html(report_text: str) -> str:
             <div style='height:32px'></div>
             <div style='font-size:24px;font-weight:700;color:#111827;margin-bottom:12px;text-align:center'>论文详解</div>
             <table role='presentation' width='100%' cellspacing='0' cellpadding='0'>{''.join(detail_cards) if detail_cards else "<tr><td style='font-size:16px;line-height:1.7;color:#4B5563'>本期暂无可解析论文。</td></tr>"}</table>
+
+            <div style='height:32px'></div>
+            <!-- WEEKLY_SIGNALS_SLOT -->
 
             <div style='height:18px'></div>
             <div style='font-size:12px;line-height:1.6;color:#6B7280'>AI Insight internal use only · auto-generated weekly intelligence digest</div>
@@ -1546,10 +1549,14 @@ def run_once() -> None:
     if official_text:
         text_digest = text_digest + "\n\n" + official_text
     if official_html:
-        if "</body>" in html_digest:
+        if "<!-- WEEKLY_SIGNALS_SLOT -->" in html_digest:
+            html_digest = html_digest.replace("<!-- WEEKLY_SIGNALS_SLOT -->", official_html, 1)
+        elif "</body>" in html_digest:
             html_digest = html_digest.replace("</body>", official_html + "</body>", 1)
         else:
             html_digest += official_html
+    else:
+        html_digest = html_digest.replace("<!-- WEEKLY_SIGNALS_SLOT -->", "", 1)
     date_str = dt.datetime.now().strftime("%Y-%m-%d")
     send_email(
         subject=f"[{date_str}] World Engine 与 Data Infra 每周论文简报",

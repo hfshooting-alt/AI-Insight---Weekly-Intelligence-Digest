@@ -204,7 +204,7 @@ def render_html_fragment(run_summary: RunSummary, clusters: List[TopicCluster]) 
                 <tr><td style='padding:0 0 10px 0'>
                   <table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='background:#FFFFFF;border:1px solid #E5E7EB;border-radius:12px'>
                     <tr><td style='padding:14px 14px 12px'>
-                      <div style='font-size:18px;line-height:1.45;font-weight:700;color:#111827;margin-bottom:6px'>{escape(a.get('title',''))}</div>
+                      <div style='font-size:19px;line-height:1.45;font-weight:700;color:#111827;margin-bottom:6px'>{escape(a.get('title',''))}</div>
                       <div style='font-size:16px;line-height:1.7;color:#111827;margin-bottom:8px'>{escape(a.get('article_summary_zh',''))}</div>
                       <div style='font-size:13px;line-height:1.6;color:#4B5563'>来源：<a href='{escape(a.get('url',''))}' style='color:#2563EB;text-decoration:none'>@{escape(a.get('institution_name','官方来源'))}（原文链接）</a></div>
                     </td></tr>

@@ -245,6 +245,14 @@ def html_strip(value: str) -> str:
     return re.sub(r"<[^>]+>", " ", v)
 
 
+def sanitize_text(value: str, max_len: int = 0) -> str:
+    txt = html_strip(value or "")
+    txt = re.sub(r"\s+", " ", txt).strip()
+    if max_len and len(txt) > max_len:
+        txt = txt[:max_len].rstrip()
+    return txt
+
+
 def target_beijing_date_window() -> Tuple[dt.date, dt.date]:
     """Return inclusive window [t-17, t-11] in Beijing date."""
     today = now_beijing().date()
@@ -322,7 +330,7 @@ def fetch_arxiv() -> List[Paper]:
             Paper(
                 title=e.get("title", ""),
                 url=e.get("link", ""),
-                abstract=e.get("summary", ""),
+                abstract=sanitize_text(e.get("summary", "")),
                 source="arXiv",
                 published=published,
                 authors=[a.name for a in e.get("authors", [])],
@@ -444,7 +452,7 @@ def fetch_openalex() -> List[Paper]:
                 Paper(
                     title=r.get("title") or "",
                     url=(r.get("primary_location") or {}).get("landing_page_url") or r.get("id") or "",
-                    abstract=reconstruct_abstract(r.get("abstract_inverted_index") or {}),
+                    abstract=sanitize_text(reconstruct_abstract(r.get("abstract_inverted_index") or {})),
                     source="OpenAlex",
                     published=published,
                     authors=authors,
@@ -497,7 +505,7 @@ def fetch_semantic_scholar() -> List[Paper]:
                 Paper(
                     title=p.get("title") or "",
                     url=p.get("url") or "",
-                    abstract=p.get("abstract") or "",
+                    abstract=sanitize_text(p.get("abstract") or ""),
                     source=f"SemanticScholar/{venue}",
                     published=published,
                     authors=author_list,
@@ -1047,19 +1055,30 @@ def build_day_summary(papers: List[Paper]) -> str:
 
 
 def fetch_fulltext_context(paper: Paper) -> str:
-    try:
-        resp = requests.get(paper.url, timeout=20, headers=REQUEST_HEADERS)
-        resp.raise_for_status()
-        txt = html_strip(resp.text)
-        txt = re.sub(r"\s+", " ", txt).strip()
-        return txt[:20000]
-    except Exception:
-        return ""
+    candidates = [paper.url]
+    if "arxiv.org/abs/" in (paper.url or ""):
+        candidates.append((paper.url or "").replace("/abs/", "/html/"))
+        candidates.append((paper.url or "").replace("/abs/", "/pdf/") + ".pdf")
+
+    best = ""
+    for u in candidates:
+        if not u:
+            continue
+        try:
+            resp = requests.get(u, timeout=20, headers=REQUEST_HEADERS)
+            resp.raise_for_status()
+            txt = sanitize_text(resp.text, max_len=20000)
+            if len(txt) > len(best):
+                best = txt
+        except Exception:
+            continue
+    return best
 
 
 def has_readable_fulltext(fulltext_context: str) -> bool:
-    # protect against abstract-only snippets / nav noise
-    return len(fulltext_context.strip()) >= 2500
+    # protect against abstract-only snippets / nav noise; configurable lower bound for real-world sites
+    min_chars = int(os.environ.get("FULLTEXT_MIN_CHARS", "1200"))
+    return len((fulltext_context or "").strip()) >= min_chars
 
 
 def build_prompt(paper: Paper, category: str, fulltext_context: str) -> str:
@@ -1225,7 +1244,7 @@ def render_paper_block(index: int, item: AnalyzedPaper, parsed: Dict[str, str], 
 
 
 def fallback_structured_analysis(paper: Paper, category: str, reason: str = "") -> Dict[str, str]:
-    abstract = (paper.abstract or "").strip()
+    abstract = sanitize_text((paper.abstract or ""), max_len=1200)
     short_abstract = abstract if abstract else ""
     no_data_msg = "本条未能抓取到稳定正文，以下结论基于题目与摘要，需后续复核。"
     reason_text = f"（{reason}）" if reason else ""
@@ -1242,7 +1261,7 @@ def ensure_structured_analysis_content(parsed: Dict[str, str], paper: Paper, cat
     fallback = fallback_structured_analysis(paper, category, reason="结构化字段缺失")
     out: Dict[str, str] = {}
     for k, fv in fallback.items():
-        value = (parsed.get(k) or "").strip()
+        value = sanitize_text((parsed.get(k) or "").strip(), max_len=1800)
         out[k] = value if value else fv
     return out
 

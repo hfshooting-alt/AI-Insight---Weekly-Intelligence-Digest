@@ -100,12 +100,11 @@ python daily_paper_agent.py
 你也可以把 `send_email()` 替换为你现有发送函数，其他逻辑无需改动。
 
 
-### GitHub Actions 定时（北京时间早上10点）
+### GitHub Actions 手动触发发送
 
 仓库已提供工作流：`.github/workflows/daily-paper-digest.yml`。
 
-- 已固定按 *北京时间 10:00* 触发（对应 UTC `02:00`）。
-- 也支持手动触发（`workflow_dispatch`）先试跑。
+- 当前仅保留手动触发（`workflow_dispatch`），不会再由 GitHub Workflow 每天自动发送。
 
 你需要在 GitHub 仓库 `Settings -> Secrets and variables -> Actions -> Secrets` 中配置：
 

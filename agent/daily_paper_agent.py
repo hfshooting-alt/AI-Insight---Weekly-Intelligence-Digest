@@ -1637,8 +1637,16 @@ def build_official_monitor_section() -> Tuple[str, str]:
 
 
 def send_email(subject: str, text_body: str, html_body: str) -> None:
-    to_email = os.environ["REPORT_EMAIL_TO"]
-    from_email = os.environ.get("REPORT_EMAIL_FROM", to_email)
+    raw_to_email = os.environ["REPORT_EMAIL_TO"]
+    to_emails = [
+        addr.strip()
+        for addr in re.split(r"[;,]", raw_to_email)
+        if addr and addr.strip()
+    ]
+    if not to_emails:
+        raise ValueError("REPORT_EMAIL_TO is empty after parsing")
+
+    from_email = os.environ.get("REPORT_EMAIL_FROM", to_emails[0])
     smtp_host = os.environ.get("SMTP_HOST", "smtp.163.com")
     smtp_port = int(os.environ.get("SMTP_PORT", "465"))
     smtp_user = os.environ.get("SMTP_USER", from_email)
@@ -1646,7 +1654,7 @@ def send_email(subject: str, text_body: str, html_body: str) -> None:
 
     msg = MIMEMultipart("alternative")
     msg["From"] = from_email
-    msg["To"] = to_email
+    msg["To"] = ", ".join(to_emails)
     msg["Subject"] = subject
     msg.attach(MIMEText(text_body, "plain", "utf-8"))
     msg.attach(MIMEText(html_body, "html", "utf-8"))
@@ -1654,7 +1662,7 @@ def send_email(subject: str, text_body: str, html_body: str) -> None:
     with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
         if smtp_user and smtp_pass:
             server.login(smtp_user, smtp_pass)
-        server.sendmail(from_email, [to_email], msg.as_string())
+        server.sendmail(from_email, to_emails, msg.as_string())
 
 
 def run_once() -> None:

@@ -58,7 +58,7 @@ MIT
 
 ### 你要求的两个变量
 
-- `REPORT_EMAIL_TO`：邮件发送目标地址（必填）
+- `REPORT_EMAIL_TO`：邮件发送目标地址（必填，支持单个地址或多个地址，多个地址可用`,`/`;`分隔）
 - `OPENAI_API_KEY`：ChatGPT API（必填）
 
 ### 快速开始
@@ -112,7 +112,7 @@ python daily_paper_agent.py
 **必填**
 - `OPENAI_API_KEY`
 - `OPENAI_MODEL`（例如你可用的 GPT-5.x 模型ID）
-- `REPORT_EMAIL_TO`
+- `REPORT_EMAIL_TO`（支持多个地址，`,` 或 `;` 分隔）
 - `SMTP_PASS`（163客户端授权码）
 
 **建议填写（不填会自动回退）**

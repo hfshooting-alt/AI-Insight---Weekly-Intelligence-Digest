@@ -61,40 +61,6 @@ def _passes_signal_gate(article: NormalizedArticle) -> bool:
     return False
 
 
-def _pick_focus_articles(articles: List[NormalizedArticle], min_events: int = 7, max_events: int = 12) -> List[NormalizedArticle]:
-    """Pick 7-12 representative events with source diversity when enough data exists."""
-    if not articles:
-        return []
-    sorted_items = sorted(articles, key=lambda x: x.importance_score, reverse=True)
-    if len(sorted_items) <= min_events:
-        return sorted_items
-
-    # First pass: pick best event per institution to avoid one source dominating.
-    picked: List[NormalizedArticle] = []
-    used_insts: set[str] = set()
-    for a in sorted_items:
-        inst = (a.company_or_firm_name or "").strip().lower()
-        if inst and inst in used_insts:
-            continue
-        picked.append(a)
-        if inst:
-            used_insts.add(inst)
-        if len(picked) >= max_events:
-            return picked
-
-    # Second pass: fill up by overall importance.
-    if len(picked) < min_events:
-        seen = {a.article_id for a in picked}
-        for a in sorted_items:
-            if a.article_id in seen:
-                continue
-            picked.append(a)
-            seen.add(a.article_id)
-            if len(picked) >= min(max_events, len(sorted_items)):
-                break
-
-    return picked[:max_events]
-
 
 def _merge_small_clusters(clusters: List[List[NormalizedArticle]], min_cluster_size: int = 2) -> List[List[NormalizedArticle]]:
     clusters = [sorted(c, key=lambda x: x.importance_score, reverse=True) for c in clusters if c]
@@ -210,10 +176,9 @@ def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> T
     deduped = dedupe_articles(raw_articles)
     _log("dedupe_complete", before=len(raw_articles), after=len(deduped))
 
-    focus_articles = _pick_focus_articles(deduped, min_events=7, max_events=12)
-    _log("focus_events_selected", selected=len(focus_articles), deduped=len(deduped))
+    _log("cluster_input_ready", events=len(deduped))
 
-    clusters_raw = cluster_articles(focus_articles)
+    clusters_raw = cluster_articles(deduped)
     clusters_raw = _merge_small_clusters(clusters_raw, min_cluster_size=2)
     clusters_raw = _rebalance_cluster_count(clusters_raw, min_topics=2, max_topics=4)
     _log("cluster_counts", clusters=len(clusters_raw), events=sum(len(c) for c in clusters_raw))
@@ -265,7 +230,7 @@ def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> T
         trusted_sources=len(sources),
         covered_sources=covered_sources,
         fetched_articles=len(raw_articles),
-        kept_articles=len(focus_articles),
+        kept_articles=len(deduped),
         deduped_articles=len(deduped),
         topic_clusters=len(topic_clusters),
         drop_reasons=dict(drop_reasons),

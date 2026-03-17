@@ -133,8 +133,10 @@ Agent 现在采用以下策略：
 可通过环境变量调优：
 
 - `MAX_PAPERS`（默认 `18`，用于讨论量筛选前候选池）
-- 最终只输出 `Top 3`（按 X/Reddit/GitHub 讨论量）
+- 最终只输出 `Top 3`（按 GitHub/X/Reddit 的 100 分综合重要性评分：GitHub 40 + X 30 + Reddit 30）
 - `OPENAI_MODEL`（默认 `gpt-4o-mini`）
+- 可选：`GITHUB_TOKEN`（提高 GitHub API 额度，提升评分稳定性）
+- 可选：`X_BEARER_TOKEN`（可用时启用更细粒度的 X 指标）
 
 
 ### 日报展示优化（更美观）

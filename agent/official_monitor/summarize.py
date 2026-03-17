@@ -59,11 +59,11 @@ def summarize_article_zh(article: NormalizedArticle) -> str:
 def summarize_cluster_event_zh(cluster: List[NormalizedArticle], topic_keywords: List[str]) -> Tuple[str, str]:
     key = "、".join(topic_keywords[:4]) if topic_keywords else "AI产品与投资动态"
     text_pool = " ".join([(a.title + " " + (a.content_text or "")[:500]) for a in cluster[:8]])
-    sampled = _excerpt(text_pool, 220)
-    summary = (
-        f"过去一周内，该主题下官方内容集中围绕“{key}”推进。"
-        f"{sampled if sampled else '多家机构在产品发布、平台能力与生态合作上同步动作。'}"
-    )
+    sampled = _excerpt(text_pool, 200)
+    inst_cnt = len({(a.company_or_firm_name or '').strip() for a in cluster if (a.company_or_firm_name or '').strip()})
+    event_cnt = len(cluster)
+    lead = f"过去一周该话题汇总了{event_cnt}起官方事件（涉及{inst_cnt}家机构），主线聚焦“{key}”。"
+    summary = lead + (sampled if sampled else '多家机构在产品发布、平台能力与生态合作上同步动作。')
     summary = _clip_zh(summary, 260)
 
     strategic = "信号显示行业正在加速从技术能力展示转向平台化与商业化执行。"

@@ -211,7 +211,7 @@ def merge_same_title_topics(clusters: List[TopicCluster]) -> List[TopicCluster]:
 
 def render_html_fragment(run_summary: RunSummary, clusters: List[TopicCluster]) -> str:
     selected = sorted(clusters, key=lambda c: (c.topic_priority_score, c.article_count), reverse=True)
-    selected = merge_same_title_topics(selected)
+    # Keep cluster boundaries from pipeline; do not merge solely by identical title.
     selected = sorted(selected, key=lambda c: (c.topic_priority_score, c.article_count), reverse=True)[:4]
     if not selected:
         return (
@@ -235,7 +235,7 @@ def render_html_fragment(run_summary: RunSummary, clusters: List[TopicCluster]) 
         t = t.replace(" 涉及主体：", "<br/><strong>涉及主体：</strong>")
         return t
 
-    def pick_supporting_articles(items: list[dict], limit: int = 6) -> list[dict]:
+    def pick_supporting_articles(items: list[dict], limit: int = 4) -> list[dict]:
         picked: list[dict] = []
         used: set[str] = set()
         for a in items:
@@ -260,7 +260,7 @@ def render_html_fragment(run_summary: RunSummary, clusters: List[TopicCluster]) 
     idx = 0
     while remaining > 0 and selected:
         i = idx % len(selected)
-        if per_theme_quota[i] < len(selected[i].supporting_articles):
+        if per_theme_quota[i] < min(4, len(selected[i].supporting_articles)):
             per_theme_quota[i] += 1
             remaining -= 1
         idx += 1

@@ -49,24 +49,25 @@ def _llm_client():
 
 
 def summarize_article_zh(article: NormalizedArticle) -> str:
-    core = _excerpt(article.content_text, 180) or _clip_zh(article.title, 120)
-    signal = "；".join(article.tags[:3]) if article.tags else article.signal_type
+    base = (article.summary or "").strip()
+    core = base or _excerpt(article.content_text, 150) or _clip_zh(article.title, 100)
+    signal = "；".join(article.tags[:3]) if article.tags else (article.signal_type or "event")
     entity = article.company_or_firm_name
-    out = f"核心内容：{core} 关键信号：{signal or '原文未明确标签'}。涉及主体：{entity}。"
-    return _clip_zh(out, 300)
+    out = f"核心内容：{core} 关键信号：{signal}。涉及主体：{entity}。"
+    return _clip_zh(out, 260)
 
 
 def summarize_cluster_event_zh(cluster: List[NormalizedArticle], topic_keywords: List[str]) -> Tuple[str, str]:
     key = "、".join(topic_keywords[:4]) if topic_keywords else "AI产品与投资动态"
     text_pool = " ".join([(a.title + " " + (a.content_text or "")[:500]) for a in cluster[:8]])
-    sampled = _excerpt(text_pool, 220)
-    summary = (
-        f"过去一周内，该主题下官方内容集中围绕“{key}”推进。"
-        f"{sampled if sampled else '多家机构在产品发布、平台能力与生态合作上同步动作。'}"
-    )
+    sampled = _excerpt(text_pool, 200)
+    inst_cnt = len({(a.company_or_firm_name or '').strip() for a in cluster if (a.company_or_firm_name or '').strip()})
+    event_cnt = len(cluster)
+    lead = f"过去一周该话题汇总了{event_cnt}起官方事件（涉及{inst_cnt}家机构），主线聚焦“{key}”。"
+    summary = lead + (sampled if sampled else '多家机构在产品发布、平台能力与生态合作上同步动作。')
     summary = _clip_zh(summary, 260)
 
-    strategic = "信号显示行业正在加速从技术能力展示转向平台化与商业化执行。"
+    strategic = "投行视角：关注可量化的产品上线、资金流向与组织变动，噪音事件权重降至最低。"
     if any("融资" in (a.content_text + a.title) for a in cluster):
         strategic = "投资与产业方叙事开始同频，资金与产品路线联动信号增强。"
     if any(k in key for k in ["推理", "reasoning", "多模态"]):
@@ -135,3 +136,41 @@ def infer_entities(article: NormalizedArticle) -> List[str]:
     if not cands:
         cands = [article.company_or_firm_name]
     return cands[:6]
+
+
+
+def summarize_cluster_bundle_with_llm(cluster: List[NormalizedArticle], topic_keywords: List[str]) -> Tuple[str, str, str] | None:
+    """Use LLM to generate trend-level topic title + intro summary + strategic signal."""
+    client = _llm_client()
+    if client is None:
+        return None
+    model = os.environ.get("OFFICIAL_MONITOR_SUMMARY_MODEL", os.environ.get("OPENAI_MODEL", "gpt-4o-mini"))
+    bullets = []
+    for a in cluster[:10]:
+        body = _excerpt(a.article_summary_zh or a.content_text, 220)
+        bullets.append(f"- 机构：{a.company_or_firm_name}\n  标题：{a.title}\n  结构化：{body}")
+    prompt = (
+        "你是投行研究总监。请基于以下事件输出三行中文，务必客观、精炼、可决策：\n"
+        "第一行：以‘话题标题：’开头（<=24字），必须是行业趋势，不要写某家公司名称。\n"
+        "第二行：以‘事件引言：’开头（<=120字），总结本周跨机构共同动作。\n"
+        "第三行：以‘战略信号：’开头（<=70字），给出商业含义。\n"
+        "禁止空话，禁止编造。\n\n"
+        f"关键词：{','.join(topic_keywords[:8])}\n" + "\n".join(bullets)
+    )
+    try:
+        resp = client.responses.create(model=model, input=prompt)
+        text = getattr(resp, "output_text", "") or ""
+    except Exception:
+        return None
+
+    title = intro = signal = ""
+    for ln in [x.strip() for x in text.splitlines() if x.strip()]:
+        if ln.startswith("话题标题："):
+            title = ln.split("：", 1)[1].strip()
+        elif ln.startswith("事件引言："):
+            intro = ln.split("：", 1)[1].strip()
+        elif ln.startswith("战略信号："):
+            signal = ln.split("：", 1)[1].strip()
+    if title and intro:
+        return _clip_zh(title, 30), _clip_zh(intro, 140), _clip_zh(signal or "资本、产品与生态动作正在同步加速。", 90)
+    return None

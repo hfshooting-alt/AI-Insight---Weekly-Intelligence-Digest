@@ -9,6 +9,31 @@ from .dates import parse_date_any, now_utc
 from .models import NormalizedArticle, SourceConfig
 
 
+GENERIC_TITLES = {
+    "artificial intelligence", "ai", "news", "newsroom", "blog", "insights", "resources",
+    "machine learning", "generative ai", "ai and machine learning", "latest news",
+}
+
+
+def _looks_like_listing_page(url: str, title_norm: str, plain_text: str) -> bool:
+    p = urlparse(url)
+    path = (p.path or "").lower().rstrip("/")
+    segs = [s for s in path.split("/") if s]
+    if title_norm in GENERIC_TITLES:
+        return True
+    if len(title_norm.split()) <= 3 and any(k in title_norm for k in ["artificial intelligence", "machine learning", "news", "blog", "insights"]):
+        return True
+    if segs and segs[-1] in {"news", "blog", "insights", "resources", "topic", "topics", "category", "categories", "tag", "tags"}:
+        return True
+    if any(s in {"tag", "tags", "category", "categories", "topics"} for s in segs):
+        return True
+    # listing pages usually contain many repeated teaser anchors
+    if len(re.findall(r"<a[^>]+href=", plain_text, flags=re.I)) > 80:
+        return True
+    return False
+
+
+
 def _canonicalize(url: str) -> str:
     p = urlparse(url)
     return urlunparse((p.scheme, p.netloc, p.path.rstrip('/'), '', '', ''))
@@ -63,6 +88,9 @@ def extract_article(article_html: str, url: str, source: SourceConfig, idx: int)
         return None
 
     plain = _strip_html(article_html)
+    title_norm = re.sub(r"\s+", " ", title.lower()).strip()
+    if _looks_like_listing_page(url, title_norm, article_html):
+        return None
     published = _date(article_html, plain)
     if not published:
         return None
@@ -73,7 +101,6 @@ def extract_article(article_html: str, url: str, source: SourceConfig, idx: int)
 
     author = _meta_content(article_html, "author", "name") or "未披露"
     canonical = _canonicalize(url)
-    title_norm = re.sub(r"\s+", " ", title.lower()).strip()
     content_hash = hashlib.sha1(content_text[:4000].encode("utf-8", "ignore")).hexdigest()
     dedupe_key = hashlib.sha1((canonical + title_norm).encode("utf-8", "ignore")).hexdigest()
 

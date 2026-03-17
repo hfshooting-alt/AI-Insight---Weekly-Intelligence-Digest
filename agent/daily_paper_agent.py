@@ -8,6 +8,7 @@ from __future__ import annotations
 import datetime as dt
 import html
 import json
+import math
 import os
 import re
 import smtplib
@@ -761,70 +762,201 @@ def _detect_links(text: str) -> Dict[str, str]:
     return out
 
 
-def _github_metrics(repo_url: str) -> Tuple[int, int]:
-    if not repo_url:
-        return 0, 0
-    m = re.search(r"github\.com/([\w\-\.]+)/([\w\-\.]+)", repo_url)
+def _github_repo_slug(repo_url: str) -> Tuple[str, str]:
+    m = re.search(r"github\.com/([\w\-\.]+)/([\w\-\.]+)", repo_url or "")
     if not m:
-        return 0, 0
-    owner, repo = m.group(1), m.group(2).replace('.git', '')
-    try:
-        r = requests.get(f"https://api.github.com/repos/{owner}/{repo}", timeout=15, headers=REQUEST_HEADERS)
-        if r.status_code != 200:
-            return 0, 0
-        js = r.json()
-        return int(js.get("stargazers_count") or 0), int(js.get("forks_count") or 0)
-    except Exception:
-        return 0, 0
+        return "", ""
+    return m.group(1), m.group(2).replace('.git', '')
 
 
-def _github_search_discussion_count(query: str) -> int:
-    if not query.strip():
-        return 0
+def _github_auth_headers(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    headers = dict(REQUEST_HEADERS)
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    if extra:
+        headers.update(extra)
+    return headers
+
+
+def _github_repo_snapshot(repo_url: str) -> Dict[str, object]:
+    owner, repo = _github_repo_slug(repo_url)
+    if not owner or not repo:
+        return {}
     try:
-        q = f'"{query}" in:title,body'
         r = requests.get(
+            f"https://api.github.com/repos/{owner}/{repo}",
+            timeout=15,
+            headers=_github_auth_headers(),
+        )
+        if r.status_code != 200:
+            return {}
+        return r.json() or {}
+    except Exception:
+        return {}
+
+
+def _github_repo_metrics(repo_url: str) -> Dict[str, float]:
+    owner, repo = _github_repo_slug(repo_url)
+    if not owner or not repo:
+        return {
+            "open_source_base": 0.0,
+            "star_velocity": 0.0,
+            "deep_engagement": 0.0,
+            "github_total": 0.0,
+            "stars": 0.0,
+            "forks": 0.0,
+            "issues": 0.0,
+            "prs": 0.0,
+            "star_events_7d": 0.0,
+        }
+
+    snapshot = _github_repo_snapshot(repo_url)
+    stars = float(snapshot.get("stargazers_count") or 0)
+    forks = float(snapshot.get("forks_count") or 0)
+    open_issues = float(snapshot.get("open_issues_count") or 0)
+    description = str(snapshot.get("description") or "").strip()
+
+    # 1) Open-source baseline (10)
+    open_source_base = 2.0
+    readme_ok, core_code_ok = False, False
+    try:
+        c = requests.get(
+            f"https://api.github.com/repos/{owner}/{repo}/contents",
+            timeout=15,
+            headers=_github_auth_headers(),
+        )
+        if c.status_code == 200:
+            items = c.json() or []
+            names = {str(x.get("name", "")).lower() for x in items if isinstance(x, dict)}
+            readme_ok = any(n.startswith("readme") for n in names)
+            core_code_ok = any(n in names for n in {"src", "train.py", "inference.py", "model", "models", "scripts", "requirements.txt"})
+    except Exception:
+        pass
+    open_source_base += 4.0 if readme_ok else 0.0
+    open_source_base += 4.0 if core_code_ok else 0.0
+    if description:
+        open_source_base += 0.5
+    open_source_base = min(10.0, open_source_base)
+
+    # 2) Star velocity (15): count recent WatchEvent over last 7 days.
+    star_events_7d = 0.0
+    since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=7)
+    try:
+        e = requests.get(
+            f"https://api.github.com/repos/{owner}/{repo}/events",
+            params={"per_page": 100},
+            timeout=15,
+            headers=_github_auth_headers(),
+        )
+        if e.status_code == 200:
+            events = e.json() or []
+            for it in events:
+                if str(it.get("type", "")) != "WatchEvent":
+                    continue
+                ts = str(it.get("created_at", ""))
+                try:
+                    d = dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    if d >= since:
+                        star_events_7d += 1.0
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    star_velocity = min(15.0, 5.5 * math.log1p(star_events_7d))
+
+    # 3) Deep engagement (15): forks + effective issues + PRs
+    prs = 0.0
+    issues_eff = max(0.0, open_issues * 0.65)
+    try:
+        q_since = since.strftime("%Y-%m-%d")
+        q = f"repo:{owner}/{repo} type:pr created:>={q_since}"
+        sr = requests.get(
             "https://api.github.com/search/issues",
-            params={"q": q, "per_page": 20},
+            params={"q": q, "per_page": 1},
             timeout=15,
-            headers=REQUEST_HEADERS,
+            headers=_github_auth_headers(),
         )
-        if r.status_code != 200:
-            return 0
-        items = r.json().get("items", []) or []
-        return len(items)
+        if sr.status_code == 200:
+            prs = float(sr.json().get("total_count") or 0)
     except Exception:
-        return 0
+        pass
+    deep_signal = forks + issues_eff + prs
+    deep_engagement = min(15.0, 3.8 * math.log1p(deep_signal))
+
+    total = min(40.0, open_source_base + star_velocity + deep_engagement)
+    return {
+        "open_source_base": round(open_source_base, 2),
+        "star_velocity": round(star_velocity, 2),
+        "deep_engagement": round(deep_engagement, 2),
+        "github_total": round(total, 2),
+        "stars": round(stars, 2),
+        "forks": round(forks, 2),
+        "issues": round(open_issues, 2),
+        "prs": round(prs, 2),
+        "star_events_7d": round(star_events_7d, 2),
+    }
 
 
-def _reddit_discussion_score(query: str) -> float:
+def _github_metrics(repo_url: str) -> Tuple[int, int]:
+    # Backward-compatible shortcut for existing early quality scorer.
+    m = _github_repo_metrics(repo_url)
+    return int(m.get("stars") or 0), int(m.get("forks") or 0)
+
+
+def _x_discussion_score(query: str) -> Dict[str, float]:
     if not query.strip():
-        return 0.0
-    try:
-        r = requests.get(
-            "https://www.reddit.com/search.json",
-            params={"q": query, "sort": "new", "limit": 30, "restrict_sr": "false"},
-            timeout=15,
-            headers={**REQUEST_HEADERS, "User-Agent": "Mozilla/5.0 (daily-paper-agent)"},
-        )
-        if r.status_code != 200:
-            return 0.0
-        children = ((r.json().get("data") or {}).get("children") or [])
-        mention_count = len(children)
-        comments = sum(int(((c.get("data") or {}).get("num_comments") or 0)) for c in children)
-        score = sum(int(((c.get("data") or {}).get("score") or 0)) for c in children)
-        return float(mention_count) + comments * 0.12 + score * 0.03
-    except Exception:
-        return 0.0
+        return {"kol_score": 0.0, "interaction_score": 0.0, "x_total": 0.0, "mentions": 0.0}
 
+    # optional richer path with X API bearer token
+    bearer = os.environ.get("X_BEARER_TOKEN", "").strip()
+    if bearer:
+        try:
+            r = requests.get(
+                "https://api.x.com/2/tweets/search/recent",
+                params={
+                    "query": f'"{query}" lang:en -is:retweet',
+                    "max_results": 30,
+                    "tweet.fields": "public_metrics,author_id",
+                    "expansions": "author_id",
+                    "user.fields": "public_metrics,verified",
+                },
+                headers={"Authorization": f"Bearer {bearer}"},
+                timeout=15,
+            )
+            if r.status_code == 200:
+                js = r.json() or {}
+                tweets = js.get("data") or []
+                users = {u.get("id"): u for u in ((js.get("includes") or {}).get("users") or [])}
+                likes = quotes = 0.0
+                kol_mass = 0.0
+                for t in tweets:
+                    pm = t.get("public_metrics") or {}
+                    likes += float(pm.get("like_count") or 0)
+                    quotes += float(pm.get("quote_count") or 0)
+                    uid = t.get("author_id")
+                    u = users.get(uid) or {}
+                    followers = float(((u.get("public_metrics") or {}).get("followers_count") or 0))
+                    verified_bonus = 1.35 if u.get("verified") else 1.0
+                    kol_mass += verified_bonus * math.log1p(max(0.0, followers))
+                kol_score = min(15.0, 1.8 * math.log1p(kol_mass))
+                interaction_score = min(15.0, 1.9 * math.log1p(3 * quotes + likes))
+                total = min(30.0, kol_score + interaction_score)
+                return {
+                    "kol_score": round(kol_score, 2),
+                    "interaction_score": round(interaction_score, 2),
+                    "x_total": round(total, 2),
+                    "mentions": float(len(tweets)),
+                }
+        except Exception:
+            pass
 
-def _x_discussion_count(query: str) -> int:
-    if not query.strip():
-        return 0
+    # fallback: RSS mention count + weak KOL heuristic from handle list
     endpoints = os.environ.get(
         "X_SEARCH_RSS_ENDPOINTS",
         "https://nitter.net/search/rss?q={q},https://nitter.poast.org/search/rss?q={q}",
     ).split(",")
+    entries = []
     for ep in endpoints:
         ep = ep.strip()
         if not ep:
@@ -834,29 +966,107 @@ def _x_discussion_count(query: str) -> int:
             feed = feedparser.parse(url)
             entries = getattr(feed, "entries", []) or []
             if entries:
-                return len(entries)
+                break
         except Exception:
             continue
-    return 0
+    mentions = float(len(entries))
+    kol_handles = {
+        "ylecun": 2.0, "karpathy": 2.0, "goodfellow_ian": 2.0, "demishassabis": 1.8,
+        "andrewng": 1.8, "sama": 1.6, "gdb": 1.5,
+    }
+    kol_hit = 0.0
+    for e in entries:
+        txt = f"{str(getattr(e, 'title', '') or '')} {str(getattr(e, 'author', '') or '')}".lower()
+        for h, w in kol_handles.items():
+            if h in txt:
+                kol_hit += w
+    kol_score = min(15.0, 5.0 * math.log1p(kol_hit))
+    interaction_score = min(15.0, 3.0 * math.log1p(max(0.0, mentions)))
+    total = min(30.0, kol_score + interaction_score)
+    return {
+        "kol_score": round(kol_score, 2),
+        "interaction_score": round(interaction_score, 2),
+        "x_total": round(total, 2),
+        "mentions": round(mentions, 2),
+    }
 
 
-def compute_social_discussion_score(paper: Paper) -> Tuple[float, Dict[str, float]]:
+def _reddit_discussion_score(query: str) -> Dict[str, float]:
+    if not query.strip():
+        return {
+            "vertical_score": 0.0,
+            "depth_consensus": 0.0,
+            "reddit_total": 0.0,
+            "posts": 0.0,
+        }
+    try:
+        r = requests.get(
+            "https://www.reddit.com/search.json",
+            params={"q": query, "sort": "new", "limit": 30, "restrict_sr": "false"},
+            timeout=15,
+            headers={**REQUEST_HEADERS, "User-Agent": "Mozilla/5.0 (daily-paper-agent)"},
+        )
+        if r.status_code != 200:
+            return {"vertical_score": 0.0, "depth_consensus": 0.0, "reddit_total": 0.0, "posts": 0.0}
+        children = ((r.json().get("data") or {}).get("children") or [])
+        posts = [c.get("data") or {} for c in children]
+        if not posts:
+            return {"vertical_score": 0.0, "depth_consensus": 0.0, "reddit_total": 0.0, "posts": 0.0}
+
+        sub_weights = {
+            "machinelearning": 2.0,
+            "localllama": 1.8,
+            "singularity": 1.6,
+            "robotics": 1.8,
+            "mlscaling": 1.7,
+            "artificial": 1.4,
+            "technology": 1.0,
+        }
+        weighted_posts = 0.0
+        comments_sum = 0.0
+        upvote_quality = 0.0
+        for p in posts:
+            sub = str(p.get("subreddit") or "").lower()
+            w = sub_weights.get(sub, 1.0)
+            weighted_posts += w
+            comments_sum += w * float(p.get("num_comments") or 0)
+            upvote_quality += w * (float(p.get("score") or 0) * float(p.get("upvote_ratio") or 0))
+
+        vertical_score = min(10.0, 2.8 * math.log1p(weighted_posts))
+        depth_consensus = min(20.0, 2.2 * math.log1p(comments_sum) + 1.4 * math.log1p(max(0.0, upvote_quality)))
+        total = min(30.0, vertical_score + depth_consensus)
+        return {
+            "vertical_score": round(vertical_score, 2),
+            "depth_consensus": round(depth_consensus, 2),
+            "reddit_total": round(total, 2),
+            "posts": float(len(posts)),
+        }
+    except Exception:
+        return {"vertical_score": 0.0, "depth_consensus": 0.0, "reddit_total": 0.0, "posts": 0.0}
+
+
+def compute_social_discussion_score(paper: Paper) -> Tuple[float, Dict[str, object]]:
+    """100-point importance score: GitHub 40 + X 30 + Reddit 30."""
     arxiv_id = _parse_arxiv_id(paper.url)
     title_query = re.sub(r"\s+", " ", paper.title).strip()[:180]
     query = arxiv_id or title_query
 
-    github_mentions = _github_search_discussion_count(query)
-    reddit_score = _reddit_discussion_score(query)
-    x_mentions = _x_discussion_count(query)
+    text_blob = "\n".join([paper.title, paper.abstract])
+    links = _detect_links(text_blob)
+    gh = _github_repo_metrics(links.get("github", ""))
+    x = _x_discussion_score(query)
+    rd = _reddit_discussion_score(query)
 
-    score = github_mentions * 1.4 + reddit_score + x_mentions * 1.0
-    details = {
-        "github_mentions": float(github_mentions),
-        "reddit_score": round(reddit_score, 2),
-        "x_mentions": float(x_mentions),
-        "social_score": round(score, 2),
+    total = float(gh.get("github_total", 0.0)) + float(x.get("x_total", 0.0)) + float(rd.get("reddit_total", 0.0))
+    total = round(min(100.0, total), 2)
+    details: Dict[str, object] = {
+        "github": gh,
+        "x": x,
+        "reddit": rd,
+        "importance_score": total,
+        "query": query,
     }
-    return score, details
+    return total, details
 
 
 def pick_top_discussed_papers(papers: List[Paper], limit: int = 3) -> List[Paper]:
@@ -1279,7 +1489,7 @@ def build_overview_lines(items: List[AnalyzedPaper]) -> List[str]:
     if not items:
         return [
             "今日总篇数：0",
-            "Top 3（按X/Reddit/GitHub讨论量）：无",
+            "Top 3（按GitHub/X/Reddit综合重要性评分）：无",
             "当日趋势：无",
             "总体判断：今天未检索到符合条件的论文。",
         ]
@@ -1299,7 +1509,7 @@ def build_overview_lines(items: List[AnalyzedPaper]) -> List[str]:
 
     return [
         f"今日总篇数：{len(items)}",
-        "Top 3（按X/Reddit/GitHub讨论量）：" + "；".join([f"{i+1}.{x.paper.title}" for i, x in enumerate(top3)]),
+        "Top 3（按GitHub/X/Reddit综合重要性评分）：" + "；".join([f"{i+1}.{x.paper.title}" for i, x in enumerate(top3)]),
         "当日趋势：" + "；".join(trend_lines[:3]),
         "总体判断：今天的高相关论文以工程落地信息为主，适合用于技术路线和投资跟踪。",
     ]
@@ -1355,7 +1565,7 @@ def to_html(report_text: str) -> str:
             overview["本周总篇数"] = ln.split("：", 1)[1].strip()
         elif ln.startswith("本周总篇数："):
             overview["本周总篇数"] = ln.split("：", 1)[1].strip()
-        elif ln.startswith("Top 3（按X/Reddit/GitHub讨论量）："):
+        elif ln.startswith("Top 3（按GitHub/X/Reddit综合重要性评分）："):
             overview["Top 3 论文"] = ln.split("：", 1)[1].strip()
         elif ln.startswith("本周趋势："):
             overview["本周趋势"] = ln.split("：", 1)[1].strip()
@@ -1508,7 +1718,7 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
             "World Engine 与 Data Infra 论文周报\n"
             f"筛选时间（北京时间）：{start.strftime('%Y-%m-%d')} 至 {end.strftime('%Y-%m-%d')}\n"
             "今日总篇数：0\n"
-            "Top 3（按X/Reddit/GitHub讨论量）：无\n"
+            "Top 3（按GitHub/X/Reddit综合重要性评分）：无\n"
             "当日趋势：无\n"
             "总体判断：在目标时间窗内未检索到符合条件的论文。"
         )
@@ -1564,7 +1774,7 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
             "World Engine 与 Data Infra 论文周报\n"
             f"筛选时间（北京时间）：{start.strftime('%Y-%m-%d')} 至 {end.strftime('%Y-%m-%d')}\n"
             "今日总篇数：0\n"
-            "Top 3（按X/Reddit/GitHub讨论量）：无\n"
+            "Top 3（按GitHub/X/Reddit综合重要性评分）：无\n"
             "当日趋势：无\n"
             f"总体判断：候选论文正文抓取不足（正文不足{skipped_no_fulltext}篇），且摘要信息也不足，未生成解读。"
         )
@@ -1607,13 +1817,13 @@ def build_official_monitor_section() -> Tuple[str, str]:
         max_per_source = int(os.environ.get("OFFICIAL_MONITOR_MAX_PER_SOURCE", "20"))
         summary, _, clusters = run_pipeline(lookback_days=lookback, max_articles_per_source=max_per_source)
         if not clusters:
-            text = "本周 AI 官方信号图谱\n过去7天未检索到可用的官方主题动态。"
+            text = "本周 AI 官方信号图谱\n本周无核心异动"
             html_block = (
                 "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='margin-top:30px'>"
                 "<tr><td style='background:#FFFFFF;border:1px solid #E5E7EB;border-radius:16px;padding:24px'>"
                 "<div style='font-size:24px;line-height:1.25;font-weight:700;color:#111827;margin-bottom:8px'>本周 AI 官方信号图谱</div>"
                 "<div style='font-size:14px;line-height:1.6;color:#4B5563;margin-bottom:12px'>来自 AI 大厂与投资机构官网的主题归纳</div>"
-                "<div style='font-size:16px;line-height:1.7;color:#111827'>过去7天未检索到可用的官方主题动态。</div>"
+                "<div style='font-size:16px;line-height:1.7;color:#111827'>本周无核心异动</div>"
                 "</td></tr></table>"
             )
             return text, html_block
@@ -1637,8 +1847,16 @@ def build_official_monitor_section() -> Tuple[str, str]:
 
 
 def send_email(subject: str, text_body: str, html_body: str) -> None:
-    to_email = os.environ["REPORT_EMAIL_TO"]
-    from_email = os.environ.get("REPORT_EMAIL_FROM", to_email)
+    raw_to_email = os.environ["REPORT_EMAIL_TO"]
+    to_emails = [
+        addr.strip()
+        for addr in re.split(r"[;,]", raw_to_email)
+        if addr and addr.strip()
+    ]
+    if not to_emails:
+        raise ValueError("REPORT_EMAIL_TO is empty after parsing")
+
+    from_email = os.environ.get("REPORT_EMAIL_FROM", to_emails[0])
     smtp_host = os.environ.get("SMTP_HOST", "smtp.163.com")
     smtp_port = int(os.environ.get("SMTP_PORT", "465"))
     smtp_user = os.environ.get("SMTP_USER", from_email)
@@ -1646,7 +1864,7 @@ def send_email(subject: str, text_body: str, html_body: str) -> None:
 
     msg = MIMEMultipart("alternative")
     msg["From"] = from_email
-    msg["To"] = to_email
+    msg["To"] = ", ".join(to_emails)
     msg["Subject"] = subject
     msg.attach(MIMEText(text_body, "plain", "utf-8"))
     msg.attach(MIMEText(html_body, "html", "utf-8"))
@@ -1654,7 +1872,7 @@ def send_email(subject: str, text_body: str, html_body: str) -> None:
     with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
         if smtp_user and smtp_pass:
             server.login(smtp_user, smtp_pass)
-        server.sendmail(from_email, [to_email], msg.as_string())
+        server.sendmail(from_email, to_emails, msg.as_string())
 
 
 def run_once() -> None:

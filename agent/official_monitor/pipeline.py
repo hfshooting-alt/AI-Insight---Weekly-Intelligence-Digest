@@ -78,6 +78,17 @@ INVESTMENT_BIG_EVENT = [
 ]
 
 
+INVESTMENT_NOISE = [
+    "weekly", "monthly", "roundup", "opinion", "viewpoint", "forecast", "interview", "podcast", "newsletter",
+    "vol.", "vol", "report", "insight", "outlook", "未来", "观点", "周报", "月报", "简报", "访谈", "播客", "分享", "观察", "趋势",
+]
+
+INVESTMENT_HARD_SIGNALS = [
+    "led", "co-led", "participated", "raised", "closed", "final close", "new fund", "appointed", "joined", "departed",
+    "领投", "参投", "完成融资", "完成募资", "新基金", "最终关账", "任命", "加入", "离职", "卸任",
+]
+
+
 STRICT_EXCLUDE = [
     "bug fix", "bugfix", "patch release", "minor update", "known issues", "changelog", "maintenance",
     "vision", "fireside chat", "keynote", "panel", "rumor", "leak", "unconfirmed", "speculation",
@@ -138,10 +149,15 @@ def _passes_role_specific_gate(article: NormalizedArticle) -> bool:
         return False
 
     if st == 'investment_firm':
-        # Focus only on capital flow + partner-level personnel flow.
-        if any(k in txt for k in INVESTMENT_BIG_EVENT):
+        # Focus only on hard capital/personnel flow, and suppress PR/opinion noise.
+        has_hard = any(k in txt for k in INVESTMENT_HARD_SIGNALS) or any(k in txt for k in INVESTMENT_BIG_EVENT)
+        has_amount = _extract_funding_amount(txt) != "未披露"
+        has_noise = any(k in txt for k in INVESTMENT_NOISE)
+        if has_noise and not (has_hard or has_amount):
+            return False
+        if sig in {'investment_signal', 'm&a'} and (has_hard or has_amount):
             return True
-        return sig in {'investment_signal', 'm&a'}
+        return has_hard and (has_amount or any(k in txt for k in ["融资", "投资", "并购", "收购", "funding", "investment", "acquisition"]))
 
     return sig in {'product_release', 'investment_signal', 'partnership', 'm&a'}
 
@@ -359,8 +375,15 @@ def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> T
     _log("cluster_counts", clusters=len(clusters_raw), events=sum(len(c) for c in clusters_raw))
 
     topic_clusters: List[TopicCluster] = []
+    used_topic_titles: set[str] = set()
     for idx, cl in enumerate(clusters_raw, start=1):
         meta = build_topic_meta(cl, idx)
+        t = str(meta.get("topic_title") or "").strip()
+        if t in used_topic_titles:
+            kw = next((k for k in (meta.get("topic_keywords") or []) if k), "综合")
+            inst = next((a.company_or_firm_name for a in cl if a.company_or_firm_name), "多机构")
+            meta["topic_title"] = f"{t}｜{kw}/{inst}"
+        used_topic_titles.add(str(meta.get("topic_title") or ""))
         llm_cluster_summary = summarize_with_llm(cl, meta["topic_keywords"])
         if llm_cluster_summary:
             event_summary, strategic_signal = llm_cluster_summary

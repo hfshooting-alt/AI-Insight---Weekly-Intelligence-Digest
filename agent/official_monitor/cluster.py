@@ -111,6 +111,15 @@ def build_topic_meta(cluster: List[NormalizedArticle], idx: int) -> Dict[str, ob
     else:
         title = "AI行业产品化与落地进展"
 
+    # Add concise disambiguator to avoid repeated identical titles across clusters.
+    generic = {
+        "agent", "api", "platform", "enterprise", "capital", "ecosystem", "compute", "robotics",
+        "投资", "融资", "并购", "合作", "算力", "平台", "发布", "sig:product_release", "sig:investment_signal", "sig:partnership",
+    }
+    dis = [k for k in top_keywords if k and k.lower() not in generic][:2]
+    if dis:
+        title = f"{title}｜{'/'.join(dis)}"
+
     # Encourage industry-trend framing with multi-company hint.
     org_count = len(institutions)
     if org_count >= 3:

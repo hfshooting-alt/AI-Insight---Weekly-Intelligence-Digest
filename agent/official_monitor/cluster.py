@@ -40,28 +40,38 @@ def cluster_articles(items: List[NormalizedArticle]) -> List[List[NormalizedArti
         placed = False
         for c in clusters:
             sim = max(_similar(it, e) for e in c)
-            if sim >= 0.38:
+            if sim >= 0.42:
                 c.append(it)
                 placed = True
                 break
         if not placed:
             clusters.append([it])
 
-    # merge tiny weak clusters
-    merged: List[List[NormalizedArticle]] = []
-    weak: List[NormalizedArticle] = []
+    refined: List[List[NormalizedArticle]] = []
     for c in clusters:
-        if len(c) == 1 and c[0].importance_score < 55:
-            weak.extend(c)
-        else:
-            merged.append(c)
-    if weak:
-        if merged:
-            merged[-1].extend(weak)
-        else:
-            merged.append(weak)
-    return merged
+        refined.extend(_split_oversized_cluster(c, max_cluster_size=4, strict_sim=0.48))
 
+    # keep tiny weak clusters separate; do not force-merge unrelated events.
+    return [sorted(c, key=lambda x: x.importance_score, reverse=True) for c in refined if c]
+
+
+
+
+def _split_oversized_cluster(cluster: List[NormalizedArticle], max_cluster_size: int = 4, strict_sim: float = 0.48) -> List[List[NormalizedArticle]]:
+    if len(cluster) <= max_cluster_size:
+        return [cluster]
+    parts: List[List[NormalizedArticle]] = []
+    for it in sorted(cluster, key=lambda x: x.importance_score, reverse=True):
+        placed = False
+        for p in parts:
+            sim = max(_similar(it, e) for e in p)
+            if sim >= strict_sim and len(p) < max_cluster_size:
+                p.append(it)
+                placed = True
+                break
+        if not placed:
+            parts.append([it])
+    return parts
 
 def build_topic_meta(cluster: List[NormalizedArticle], idx: int) -> Dict[str, object]:
     tokens = Counter()

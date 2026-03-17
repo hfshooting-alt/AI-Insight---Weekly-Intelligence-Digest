@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-from collections import defaultdict
+from collections import defaultdict, Counter
 from typing import Dict, List, Tuple
 
 from .cluster import build_topic_meta, cluster_articles
@@ -62,7 +62,46 @@ def _passes_signal_gate(article: NormalizedArticle) -> bool:
 
 
 
-def _merge_small_clusters(clusters: List[List[NormalizedArticle]], min_cluster_size: int = 2) -> List[List[NormalizedArticle]]:
+
+
+TOKEN_HINTS = {
+    "agent", "api", "enterprise", "reasoning", "multimodal", "inference", "gpu", "compute", "cloud", "robotics",
+    "融资", "投资", "并购", "合作", "推理", "多模态", "算力", "芯片", "平台", "发布",
+}
+
+
+def _article_tokens(article: NormalizedArticle) -> set[str]:
+    txt = f"{article.title} {(article.content_text or '')[:1200]}".lower()
+    toks = {t for t in TOKEN_HINTS if t in txt}
+    toks.update({(x or '').strip().lower() for x in (article.tags or []) if (x or '').strip()})
+    sig = (article.signal_type or '').strip().lower()
+    if sig:
+        toks.add(f"sig:{sig}")
+    return toks
+
+
+def _article_sim(a: NormalizedArticle, b: NormalizedArticle) -> float:
+    ta, tb = _article_tokens(a), _article_tokens(b)
+    inter = len(ta & tb)
+    union = len(ta | tb) or 1
+    return inter / union
+
+
+def _cluster_signature(cluster: List[NormalizedArticle]) -> set[str]:
+    c = Counter()
+    for a in cluster:
+        for t in _article_tokens(a):
+            c[t] += 1
+    return {k for k, v in c.items() if v >= 1}
+
+
+def _cluster_sim(c1: List[NormalizedArticle], c2: List[NormalizedArticle]) -> float:
+    s1, s2 = _cluster_signature(c1), _cluster_signature(c2)
+    inter = len(s1 & s2)
+    union = len(s1 | s2) or 1
+    return inter / union
+
+def _merge_small_clusters(clusters: List[List[NormalizedArticle]], min_cluster_size: int = 2, min_merge_sim: float = 0.22) -> List[List[NormalizedArticle]]:
     clusters = [sorted(c, key=lambda x: x.importance_score, reverse=True) for c in clusters if c]
     if not clusters:
         return []
@@ -71,9 +110,13 @@ def _merge_small_clusters(clusters: List[List[NormalizedArticle]], min_cluster_s
     if not large:
         return clusters
     for s in small:
-        target_idx = min(range(len(large)), key=lambda i: len(large[i]))
-        large[target_idx].extend(s)
-        large[target_idx] = sorted(large[target_idx], key=lambda x: x.importance_score, reverse=True)
+        sims = [(_cluster_sim(s, c), i) for i, c in enumerate(large)]
+        best_sim, best_idx = max(sims, key=lambda x: x[0]) if sims else (0.0, -1)
+        if best_idx >= 0 and best_sim >= min_merge_sim:
+            large[best_idx].extend(s)
+            large[best_idx] = sorted(large[best_idx], key=lambda x: x.importance_score, reverse=True)
+        else:
+            large.append(s)
     return large
 
 def _split_cluster_by_signal(cluster: List[NormalizedArticle]) -> List[List[NormalizedArticle]]:
@@ -114,11 +157,22 @@ def _rebalance_cluster_count(clusters: List[List[NormalizedArticle]], min_topics
         if len(clusters) >= min_topics:
             break
 
-    # Merge when topics are too many.
+    # Merge when topics are too many: merge the most similar pair first to reduce semantic drift.
     while len(clusters) > max_topics:
-        clusters = sorted(clusters, key=len, reverse=True)
-        tail = clusters.pop()
-        clusters[-1].extend(tail)
+        best = (-1.0, 0, 1)
+        for i in range(len(clusters)):
+            for j in range(i + 1, len(clusters)):
+                sim = _cluster_sim(clusters[i], clusters[j])
+                if sim > best[0]:
+                    best = (sim, i, j)
+        _, i, j = best
+        merged = sorted(clusters[i] + clusters[j], key=lambda x: x.importance_score, reverse=True)
+        nxt = []
+        for k, c in enumerate(clusters):
+            if k not in {i, j}:
+                nxt.append(c)
+        nxt.append(merged)
+        clusters = nxt
 
     return [sorted(c, key=lambda x: x.importance_score, reverse=True) for c in clusters if c]
 
@@ -192,7 +246,7 @@ def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> T
         else:
             event_summary, strategic_signal = summarize_cluster_event_zh(cl, meta["topic_keywords"])
         supporting = []
-        for a in sorted(cl, key=lambda x: x.importance_score, reverse=True):
+        for a in sorted(cl, key=lambda x: x.importance_score, reverse=True)[:4]:
             a.topic_cluster_id = meta["topic_cluster_id"]
             a.article_summary_zh = summarize_article_with_llm(a) or summarize_article_zh(a)
             link = source_link_markdown(a.company_or_firm_name, a.url)

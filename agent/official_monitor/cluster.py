@@ -13,7 +13,8 @@ CLUSTER_KEYWORDS = [
 
 
 def _token_set(article: NormalizedArticle) -> set[str]:
-    txt = (article.title + " " + article.content_text[:1500]).lower()
+    pivot = article.summary or ""
+    txt = (pivot + " " + article.title + " " + article.content_text[:1200]).lower()
     toks = {k for k in CLUSTER_KEYWORDS if k.lower() in txt}
     toks.update({t.lower() for t in article.tags})
     return toks
@@ -86,30 +87,34 @@ def build_topic_meta(cluster: List[NormalizedArticle], idx: int) -> Dict[str, ob
             institutions[inst] += 1
 
     top_keywords = [k for k, _ in tokens.most_common(8)]
+    trend_buckets = {
+        "产品化与企业落地": ["platform", "api", "enterprise", "deployment", "产品", "发布", "platform"],
+        "算力基础设施升级": ["gpu", "compute", "cloud", "芯片", "算力", "inference"],
+        "资本与并购整合": ["capital", "investment", "financing", "融资", "投资", "并购", "acquisition"],
+        "生态合作与渠道扩展": ["ecosystem", "partnership", "collaboration", "合作", "生态"],
+        "具身智能与机器人应用": ["robotics", "robot", "具身", "机器人", "simulation"],
+    }
+    bucket_score = Counter()
+    token_blob = " ".join(top_keywords)
+    for k, kws in trend_buckets.items():
+        for kw in kws:
+            if kw.lower() in token_blob.lower():
+                bucket_score[k] += 1
     dominant_signal = signal_counter.most_common(1)[0][0] if signal_counter else "other"
 
-    signal_title_map = {
-        "product_release": "产品发布与平台升级",
-        "investment_signal": "投资与资本动态",
-        "m&a": "并购与资本整合",
-        "partnership": "生态合作与商业落地",
-        "research_update": "技术能力与研发进展",
-    }
-    stem = signal_title_map.get(dominant_signal, "AI产业关键动态")
-
-    stop_keywords = {
-        "api", "agent", "enterprise", "reasoning", "multimodal", "inference", "compute", "gpu", "cloud",
-        "智能体", "推理", "多模态", "算力", "云", "融资", "并购", "product_release", "partnership", "investment_signal",
-    }
-    detail_kws = [k for k in top_keywords if k and k.lower() not in stop_keywords][:3]
-    top_insts = [k for k, _ in institutions.most_common(2)]
-
-    if detail_kws:
-        title = f"{stem}：{'、'.join(detail_kws)}"
-    elif top_insts:
-        title = f"{stem}：{'、'.join(top_insts)}"
+    if bucket_score:
+        title = bucket_score.most_common(1)[0][0]
+    elif dominant_signal in {"investment_signal", "m&a"}:
+        title = "资本与并购整合"
+    elif dominant_signal == "partnership":
+        title = "生态合作与渠道扩展"
     else:
-        title = stem
+        title = "AI行业产品化与落地进展"
+
+    # Encourage industry-trend framing with multi-company hint.
+    org_count = len(institutions)
+    if org_count >= 3:
+        title = f"{title}（多机构共振）"
 
     return {
         "topic_cluster_id": f"topic_{idx:03d}",

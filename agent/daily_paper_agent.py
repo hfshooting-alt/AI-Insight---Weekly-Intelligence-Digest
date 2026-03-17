@@ -1817,13 +1817,13 @@ def build_official_monitor_section() -> Tuple[str, str]:
         max_per_source = int(os.environ.get("OFFICIAL_MONITOR_MAX_PER_SOURCE", "20"))
         summary, _, clusters = run_pipeline(lookback_days=lookback, max_articles_per_source=max_per_source)
         if not clusters:
-            text = "本周 AI 官方信号图谱\n过去7天未检索到可用的官方主题动态。"
+            text = "本周 AI 官方信号图谱\n本周无核心异动"
             html_block = (
                 "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='margin-top:30px'>"
                 "<tr><td style='background:#FFFFFF;border:1px solid #E5E7EB;border-radius:16px;padding:24px'>"
                 "<div style='font-size:24px;line-height:1.25;font-weight:700;color:#111827;margin-bottom:8px'>本周 AI 官方信号图谱</div>"
                 "<div style='font-size:14px;line-height:1.6;color:#4B5563;margin-bottom:12px'>来自 AI 大厂与投资机构官网的主题归纳</div>"
-                "<div style='font-size:16px;line-height:1.7;color:#111827'>过去7天未检索到可用的官方主题动态。</div>"
+                "<div style='font-size:16px;line-height:1.7;color:#111827'>本周无核心异动</div>"
                 "</td></tr></table>"
             )
             return text, html_block

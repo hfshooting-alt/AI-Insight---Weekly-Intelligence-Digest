@@ -165,6 +165,10 @@ def render_markdown(run_summary: RunSummary, clusters: List[TopicCluster]) -> st
         f"- 聚类主题数：{run_summary.topic_clusters}",
         "",
     ]
+    if not clusters:
+        lines.append("本周无核心异动")
+        return "\n".join(lines).strip() + "\n"
+
     for idx, c in enumerate(clusters, start=1):
         lines.append(f"## Topic {idx}｜{c.topic_title}")
         lines.append(f"**事件总结：** {c.event_summary}  ")
@@ -218,7 +222,7 @@ def render_html_fragment(run_summary: RunSummary, clusters: List[TopicCluster]) 
             "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='margin-top:28px'>"
             "<tr><td style='background:#FFFFFF;border:1px solid #E5E7EB;border-radius:16px;padding:24px;box-shadow:0 8px 28px rgba(15,23,42,0.06)'>"
             "<div style='font-size:24px;font-weight:700;color:#111827;margin-bottom:8px'>本周 AI 官方信号图谱</div>"
-            "<div style='font-size:16px;line-height:1.7;color:#4B5563'>过去7天未形成可用于管理层判断的稳定主题。</div>"
+            "<div style='font-size:16px;line-height:1.7;color:#4B5563'>本周无核心异动</div>"
             "</td></tr></table>"
         )
 

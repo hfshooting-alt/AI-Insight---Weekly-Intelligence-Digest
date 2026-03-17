@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import re
 from collections import defaultdict, Counter
 from typing import Dict, List, Tuple
 
@@ -62,6 +63,118 @@ def _passes_signal_gate(article: NormalizedArticle) -> bool:
 
 
 
+
+AI_COMPANY_MUST = [
+    "launch", "release", "announce", "debut", "rollout", "ga", "general availability",
+    "发布", "上线", "推出", "开源", "发布会", "升级", "新版本",
+]
+AI_COMPANY_PR_NOISE = [
+    "using", "how to", "customer story", "case study", "best practices", "tutorial", "webinar", "spotlight",
+    "hospital automation", "industry stories", "观点", "观察", "实践分享", "案例", "教程", "直播", "活动回顾", "周报", "月报",
+]
+INVESTMENT_BIG_EVENT = [
+    "funding", "financing", "investment", "invested", "acquisition", "merger", "portfolio", "appoint", "joins as", "ceo", "cfo", "partner",
+    "融资", "投资", "领投", "并购", "收购", "被投", "投后", "任命", "加入担任", "合伙人", "ceo", "cfo", "cto",
+]
+
+
+STRICT_EXCLUDE = [
+    "bug fix", "bugfix", "patch release", "minor update", "known issues", "changelog", "maintenance",
+    "vision", "fireside chat", "keynote", "panel", "rumor", "leak", "unconfirmed", "speculation",
+    "修复", "补丁", "已知问题", "维护更新", "愿景", "演讲", "论坛", "圆桌", "传闻", "爆料", "未经证实", "猜测",
+]
+
+FUNDING_AMOUNT_PATTERNS = [
+    r"\$\s?([0-9]+(?:\.[0-9]+)?)\s?([mb]illion|[mk]?)",
+    r"([0-9]+(?:\.[0-9]+)?)\s?(million|billion)\s?(usd|dollars)?",
+    r"(\d+(?:\.\d+)?)\s?(亿|万)\s?(美元|人民币|美金|元)",
+]
+
+SECTOR_HINTS = [
+    "agent", "inference", "ai infra", "data infra", "robotics", "autonomous driving", "chip", "gpu", "foundation model",
+    "智能体", "推理", "数据基础设施", "机器人", "自动驾驶", "芯片", "算力", "大模型",
+]
+
+
+def _extract_funding_amount(text: str) -> str:
+    t = text or ""
+    for pat in FUNDING_AMOUNT_PATTERNS:
+        m = re.search(pat, t, flags=re.I)
+        if m:
+            return m.group(0).strip()
+    return "未披露"
+
+
+def _extract_sector(text: str) -> str:
+    low = (text or '').lower()
+    hits = [k for k in SECTOR_HINTS if k.lower() in low]
+    if not hits:
+        return "未明确赛道"
+    return "、".join(list(dict.fromkeys(hits))[:3])
+
+
+def _extract_company_name(article: NormalizedArticle) -> str:
+    title = article.title or ""
+    m = re.search(r"([A-Z][A-Za-z0-9\-\.]{1,30})\s+(raises|raised|announces|acquires|appoints)", title)
+    if m:
+        return m.group(1)
+    return article.company_or_firm_name or "未披露"
+
+
+def _passes_role_specific_gate(article: NormalizedArticle) -> bool:
+    txt = f"{article.title} {(article.content_text or '')[:2200]}".lower()
+    st = (article.source_type or '').strip().lower()
+    sig = (article.signal_type or '').strip().lower()
+
+    if any(k in txt for k in STRICT_EXCLUDE):
+        return False
+
+    if st == 'ai_company':
+        # Only disruptive product launches / core features / strategic M&A-partnership.
+        if any(k in txt for k in AI_COMPANY_PR_NOISE) and not any(k in txt for k in AI_COMPANY_MUST):
+            return False
+        if sig in {'product_release', 'm&a', 'partnership'} and any(k in txt for k in AI_COMPANY_MUST):
+            return True
+        return False
+
+    if st == 'investment_firm':
+        # Focus only on capital flow + partner-level personnel flow.
+        if any(k in txt for k in INVESTMENT_BIG_EVENT):
+            return True
+        return sig in {'investment_signal', 'm&a'}
+
+    return sig in {'product_release', 'investment_signal', 'partnership', 'm&a'}
+
+
+def _build_precluster_summary(article: NormalizedArticle) -> str:
+    txt = f"{article.title} {(article.content_text or '')[:1200]}".lower()
+    raw = f"{article.title} {(article.content_text or '')[:2200]}"
+    facets = []
+    if any(k in txt for k in ["agent", "智能体", "assistant"]):
+        facets.append("agent")
+    if any(k in txt for k in ["api", "platform", "sdk", "开发者平台"]):
+        facets.append("platform")
+    if any(k in txt for k in ["gpu", "compute", "cloud", "算力", "芯片"]):
+        facets.append("compute")
+    if any(k in txt for k in ["funding", "financing", "investment", "融资", "投资", "并购", "收购"]):
+        facets.append("capital")
+    if any(k in txt for k in ["partnership", "collaboration", "合作", "生态"]):
+        facets.append("ecosystem")
+    if any(k in txt for k in ["robot", "robotics", "具身", "机器人"]):
+        facets.append("robotics")
+    if any(k in txt for k in ["enterprise", "production", "deployment", "企业", "落地", "部署"]):
+        facets.append("enterprise")
+
+    sig = (article.signal_type or 'event').lower()
+    lead = f"{article.company_or_firm_name} {sig}"
+    if (article.source_type or '').strip().lower() == 'investment_firm':
+        company = _extract_company_name(article)
+        amount = _extract_funding_amount(raw)
+        sector = _extract_sector(raw)
+        lead = f"{article.company_or_firm_name} capital_event target={company} amount={amount} sector={sector}"
+    elif facets:
+        lead += " " + " ".join(dict.fromkeys(facets))
+    return lead.strip()
 
 
 TOKEN_HINTS = {
@@ -218,7 +331,11 @@ def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> T
             if not _passes_signal_gate(art):
                 drop_reasons["low_signal_content"] += 1
                 continue
+            if not _passes_role_specific_gate(art):
+                drop_reasons["role_specific_filtered"] += 1
+                continue
 
+            art.summary = _build_precluster_summary(art)
             art.related_entities = infer_entities(art)
             raw_articles.append(art)
             article_idx += 1
@@ -229,6 +346,10 @@ def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> T
 
     deduped = dedupe_articles(raw_articles)
     _log("dedupe_complete", before=len(raw_articles), after=len(deduped))
+
+    for a in deduped:
+        if not (a.summary or "").strip():
+            a.summary = _build_precluster_summary(a)
 
     _log("cluster_input_ready", events=len(deduped))
 

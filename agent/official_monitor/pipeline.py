@@ -29,6 +29,37 @@ def _log(event: str, **kwargs) -> None:
 
 
 
+CORE_SIGNAL_TYPES = {"product_release", "investment_signal", "partnership", "m&a"}
+
+STRONG_SIGNAL_KEYWORDS = [
+    "launch", "launched", "release", "released", "announce", "announced",
+    "general availability", "ga", "debut", "unveil", "introduce", "rollout",
+    "funding", "fundraise", "investment", "invest", "financing", "raised",
+    "acquisition", "acquire", "merger", "m&a", "strategic partnership",
+    "发布", "上线", "推出", "开源", "融资", "投资", "领投", "并购", "收购", "合作",
+]
+
+LOW_SIGNAL_KEYWORDS = [
+    "weekly", "daily", "monthly", "newsletter", "roundup", "recap", "digest",
+    "week in review", "highlights", "highlights of the week", "editorial", "sponsored",
+    "观点", "观察", "周报", "日报", "月报", "简报", "合集", "精选", "回顾", "快讯", "速递", "专栏", "软文",
+]
+
+
+def _passes_signal_gate(article: NormalizedArticle) -> bool:
+    text = f"{article.title} {(article.content_text or '')[:1600]}".lower()
+    strong_hit = any(k in text for k in STRONG_SIGNAL_KEYWORDS)
+    low_signal_hit = any(k in text for k in LOW_SIGNAL_KEYWORDS)
+    signal_type = (article.signal_type or '').strip().lower()
+
+    if low_signal_hit and not strong_hit:
+        return False
+    if signal_type in CORE_SIGNAL_TYPES:
+        return True
+    if strong_hit:
+        return True
+    return False
+
 
 def _split_cluster_by_signal(cluster: List[NormalizedArticle]) -> List[List[NormalizedArticle]]:
     buckets: Dict[str, List[NormalizedArticle]] = {}
@@ -114,6 +145,9 @@ def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> T
                 continue
             if not art.content_text:
                 drop_reasons["empty_content"] += 1
+                continue
+            if not _passes_signal_gate(art):
+                drop_reasons["low_signal_content"] += 1
                 continue
 
             art.related_entities = infer_entities(art)

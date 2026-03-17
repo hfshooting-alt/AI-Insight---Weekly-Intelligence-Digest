@@ -165,6 +165,10 @@ def render_markdown(run_summary: RunSummary, clusters: List[TopicCluster]) -> st
         f"- 聚类主题数：{run_summary.topic_clusters}",
         "",
     ]
+    if not clusters:
+        lines.append("本周无核心异动")
+        return "\n".join(lines).strip() + "\n"
+
     for idx, c in enumerate(clusters, start=1):
         lines.append(f"## Topic {idx}｜{c.topic_title}")
         lines.append(f"**事件总结：** {c.event_summary}  ")
@@ -211,14 +215,14 @@ def merge_same_title_topics(clusters: List[TopicCluster]) -> List[TopicCluster]:
 
 def render_html_fragment(run_summary: RunSummary, clusters: List[TopicCluster]) -> str:
     selected = sorted(clusters, key=lambda c: (c.topic_priority_score, c.article_count), reverse=True)
-    selected = merge_same_title_topics(selected)
+    # Keep cluster boundaries from pipeline; do not merge solely by identical title.
     selected = sorted(selected, key=lambda c: (c.topic_priority_score, c.article_count), reverse=True)[:4]
     if not selected:
         return (
             "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='margin-top:28px'>"
             "<tr><td style='background:#FFFFFF;border:1px solid #E5E7EB;border-radius:16px;padding:24px;box-shadow:0 8px 28px rgba(15,23,42,0.06)'>"
             "<div style='font-size:24px;font-weight:700;color:#111827;margin-bottom:8px'>本周 AI 官方信号图谱</div>"
-            "<div style='font-size:16px;line-height:1.7;color:#4B5563'>过去7天未形成可用于管理层判断的稳定主题。</div>"
+            "<div style='font-size:16px;line-height:1.7;color:#4B5563'>本周无核心异动</div>"
             "</td></tr></table>"
         )
 
@@ -235,7 +239,7 @@ def render_html_fragment(run_summary: RunSummary, clusters: List[TopicCluster]) 
         t = t.replace(" 涉及主体：", "<br/><strong>涉及主体：</strong>")
         return t
 
-    def pick_supporting_articles(items: list[dict], limit: int = 6) -> list[dict]:
+    def pick_supporting_articles(items: list[dict], limit: int = 4) -> list[dict]:
         picked: list[dict] = []
         used: set[str] = set()
         for a in items:
@@ -260,7 +264,7 @@ def render_html_fragment(run_summary: RunSummary, clusters: List[TopicCluster]) 
     idx = 0
     while remaining > 0 and selected:
         i = idx % len(selected)
-        if per_theme_quota[i] < len(selected[i].supporting_articles):
+        if per_theme_quota[i] < min(4, len(selected[i].supporting_articles)):
             per_theme_quota[i] += 1
             remaining -= 1
         idx += 1

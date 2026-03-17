@@ -1,10 +1,6 @@
-name: Daily Paper Digest (Beijing 10:00)
+name: Daily Paper Digest (Manual)
 
 on:
-  schedule:
-    # GitHub Actions uses UTC for cron.
-    # 10:00 Asia/Shanghai (UTC+8) == 02:00 UTC.
-    - cron: '0 2 * * *'
   workflow_dispatch:
 
 jobs:

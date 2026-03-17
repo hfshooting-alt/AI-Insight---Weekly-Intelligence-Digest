@@ -58,7 +58,7 @@ MIT
 
 ### 你要求的两个变量
 
-- `REPORT_EMAIL_TO`：邮件发送目标地址（必填）
+- `REPORT_EMAIL_TO`：邮件发送目标地址（必填，支持单个地址或多个地址，多个地址可用`,`/`;`分隔）
 - `OPENAI_API_KEY`：ChatGPT API（必填）
 
 ### 快速开始
@@ -100,19 +100,18 @@ python daily_paper_agent.py
 你也可以把 `send_email()` 替换为你现有发送函数，其他逻辑无需改动。
 
 
-### GitHub Actions 定时（北京时间早上10点）
+### GitHub Actions 手动触发发送
 
 仓库已提供工作流：`.github/workflows/daily-paper-digest.yml`。
 
-- 已固定按 *北京时间 10:00* 触发（对应 UTC `02:00`）。
-- 也支持手动触发（`workflow_dispatch`）先试跑。
+- 当前仅保留手动触发（`workflow_dispatch`），不会再由 GitHub Workflow 每天自动发送。
 
 你需要在 GitHub 仓库 `Settings -> Secrets and variables -> Actions -> Secrets` 中配置：
 
 **必填**
 - `OPENAI_API_KEY`
 - `OPENAI_MODEL`（例如你可用的 GPT-5.x 模型ID）
-- `REPORT_EMAIL_TO`
+- `REPORT_EMAIL_TO`（支持多个地址，`,` 或 `;` 分隔）
 - `SMTP_PASS`（163客户端授权码）
 
 **建议填写（不填会自动回退）**
@@ -134,8 +133,10 @@ Agent 现在采用以下策略：
 可通过环境变量调优：
 
 - `MAX_PAPERS`（默认 `18`，用于讨论量筛选前候选池）
-- 最终只输出 `Top 3`（按 X/Reddit/GitHub 讨论量）
+- 最终只输出 `Top 3`（按 GitHub/X/Reddit 的 100 分综合重要性评分：GitHub 40 + X 30 + Reddit 30）
 - `OPENAI_MODEL`（默认 `gpt-4o-mini`）
+- 可选：`GITHUB_TOKEN`（提高 GitHub API 额度，提升评分稳定性）
+- 可选：`X_BEARER_TOKEN`（可用时启用更细粒度的 X 指标）
 
 
 ### 日报展示优化（更美观）
@@ -205,8 +206,18 @@ Agent 现在采用以下策略：
 已新增 `agent/official_monitor` 生产化模块，能力包括：
 - 仅基于官方信源白名单抓取（AI公司/投资机构）
 - 滚动 7 天时间窗过滤
+- 新增“高价值事件”筛选：优先保留产品发布、重大投资/融资、并购、战略合作；自动过滤软文、日报/周报/月报、合集回顾类低信号内容
 - 结构化抽取与三层去重（canonical/title/content hash）
 - 事件/主题聚类（按事件而非按来源）
+- 聚类逻辑修正：对全部抓取并清洗后的新闻先聚类，再输出话题（不是预设主题后填充）
+- 聚类呈现增强：优先汇总为 2-4 个话题，并在数据充足时覆盖 7-12 个代表性事件，便于管理层快速总览
+- 修复话题合并误伤：渲染层不再按同名标题强行并簇，避免多个独立话题被错误折叠成一个大话题
+- 聚类纯度增强：弱相关小簇仅在相似度达标时合并，并对超大簇进行二次拆分，减少同主题中混入不相关新闻
+- 单主题条目上限：每个主题最多展示 4 条代表新闻，避免单主题过载
+- 增强输入清洗：过滤 `Artificial Intelligence` / `News` 等泛栏目页与 tag/category 列表页，减少无关输入对聚类的污染
+- 清洗规则再收紧：AI大厂仅保留新品发布/重大动作，投资机构仅保留投融资、并购、核心高管变动等大事件；软文PR与案例宣传会被过滤
+- 聚类流程升级：先对清洗后的新闻生成事件概括，再基于概括文本聚类，topic优先输出行业趋势而非单公司动态
+- 宁缺毋滥：若当周无符合严格标准的重大事件，板块直接输出“本周无核心异动”
 - 输出机器可读 JSON + 中文 Markdown 周报
 - 每篇文章摘要限 300 字，并带标准来源格式：`[@机构名（原文链接）](url)`
 

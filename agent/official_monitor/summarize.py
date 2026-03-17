@@ -49,24 +49,25 @@ def _llm_client():
 
 
 def summarize_article_zh(article: NormalizedArticle) -> str:
-    core = _excerpt(article.content_text, 180) or _clip_zh(article.title, 120)
-    signal = "；".join(article.tags[:3]) if article.tags else article.signal_type
+    base = (article.summary or "").strip()
+    core = base or _excerpt(article.content_text, 150) or _clip_zh(article.title, 100)
+    signal = "；".join(article.tags[:3]) if article.tags else (article.signal_type or "event")
     entity = article.company_or_firm_name
-    out = f"核心内容：{core} 关键信号：{signal or '原文未明确标签'}。涉及主体：{entity}。"
-    return _clip_zh(out, 300)
+    out = f"核心内容：{core} 关键信号：{signal}。涉及主体：{entity}。"
+    return _clip_zh(out, 260)
 
 
 def summarize_cluster_event_zh(cluster: List[NormalizedArticle], topic_keywords: List[str]) -> Tuple[str, str]:
     key = "、".join(topic_keywords[:4]) if topic_keywords else "AI产品与投资动态"
     text_pool = " ".join([(a.title + " " + (a.content_text or "")[:500]) for a in cluster[:8]])
-    sampled = _excerpt(text_pool, 220)
-    summary = (
-        f"过去一周内，该主题下官方内容集中围绕“{key}”推进。"
-        f"{sampled if sampled else '多家机构在产品发布、平台能力与生态合作上同步动作。'}"
-    )
+    sampled = _excerpt(text_pool, 200)
+    inst_cnt = len({(a.company_or_firm_name or '').strip() for a in cluster if (a.company_or_firm_name or '').strip()})
+    event_cnt = len(cluster)
+    lead = f"过去一周该话题汇总了{event_cnt}起官方事件（涉及{inst_cnt}家机构），主线聚焦“{key}”。"
+    summary = lead + (sampled if sampled else '多家机构在产品发布、平台能力与生态合作上同步动作。')
     summary = _clip_zh(summary, 260)
 
-    strategic = "信号显示行业正在加速从技术能力展示转向平台化与商业化执行。"
+    strategic = "投行视角：关注可量化的产品上线、资金流向与组织变动，噪音事件权重降至最低。"
     if any("融资" in (a.content_text + a.title) for a in cluster):
         strategic = "投资与产业方叙事开始同频，资金与产品路线联动信号增强。"
     if any(k in key for k in ["推理", "reasoning", "多模态"]):

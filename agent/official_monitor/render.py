@@ -211,7 +211,7 @@ def merge_same_title_topics(clusters: List[TopicCluster]) -> List[TopicCluster]:
 
 def render_html_fragment(run_summary: RunSummary, clusters: List[TopicCluster]) -> str:
     selected = sorted(clusters, key=lambda c: (c.topic_priority_score, c.article_count), reverse=True)
-    selected = merge_same_title_topics(selected)
+    # Keep cluster boundaries from pipeline; do not merge solely by identical title.
     selected = sorted(selected, key=lambda c: (c.topic_priority_score, c.article_count), reverse=True)[:4]
     if not selected:
         return (

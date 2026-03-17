@@ -66,21 +66,30 @@ def cluster_articles(items: List[NormalizedArticle]) -> List[List[NormalizedArti
 
 def build_topic_meta(cluster: List[NormalizedArticle], idx: int) -> Dict[str, object]:
     tokens = Counter()
+    signal_counter = Counter()
     for a in cluster:
         for t in _token_set(a):
             tokens[t] += 1
+        signal_counter[(a.signal_type or "other").lower()] += 1
     top_keywords = [k for k, _ in tokens.most_common(8)]
+    dominant_signal = signal_counter.most_common(1)[0][0] if signal_counter else "other"
 
-    if any(k in top_keywords for k in ["融资", "investment", "financing"]):
-        title = "投资机构与企业同步释放AI投资与融资信号"
+    if dominant_signal in {"investment_signal", "m&a"} or any(k in top_keywords for k in ["融资", "investment", "financing", "并购"]):
+        title = "资本与并购主导的AI产业事件"
     elif any(k in top_keywords for k in ["agent", "智能体", "api", "开发者平台"]):
-        title = "多家机构集中推进Agent与开发者平台能力"
+        title = "Agent与平台能力发布密集出现"
     elif any(k in top_keywords for k in ["reasoning", "推理", "multimodal", "多模态"]):
-        title = "大模型厂商继续强化推理与多模态能力"
+        title = "推理与多模态能力迭代加速"
     elif any(k in top_keywords for k in ["gpu", "芯片", "compute", "云"]):
-        title = "AI算力与云基础设施更新持续加速"
+        title = "算力与云基础设施协同升级"
+    elif dominant_signal == "partnership":
+        title = "生态合作与商业落地协同推进"
     else:
-        title = "官方渠道披露AI产品化与商业化新进展"
+        title = "AI产品化与商业化进展"
+
+    lead_kw = top_keywords[0] if top_keywords else "综合"
+    if lead_kw and lead_kw not in title and len(lead_kw) <= 12:
+        title = f"{title}（侧重{lead_kw}）"
 
     return {
         "topic_cluster_id": f"topic_{idx:03d}",

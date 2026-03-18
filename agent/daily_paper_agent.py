@@ -26,6 +26,9 @@ import requests
 from apscheduler.schedulers.blocking import BlockingScheduler
 from openai import OpenAI
 
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+DEFAULT_MODEL = "gemini-2.0-flash"
+
 BEIJING_TZ = dt.timezone(dt.timedelta(hours=8))
 
 SEARCH_TERMS = [
@@ -1433,7 +1436,7 @@ def build_prompt(paper: Paper, category: str, fulltext_context: str) -> str:
 
 def analyze_paper(client: OpenAI, paper: Paper, category: str, fulltext_context: str) -> str:
     completion = client.chat.completions.create(
-        model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+        model=os.environ.get("GEMINI_MODEL", DEFAULT_MODEL),
         temperature=0.1,
         messages=[
             {"role": "system", "content": "你是资深科技行业分析师，为科技公司高管撰写技术研究简报。读者是聪明但非技术专家的企业高管，所有专业术语必须用通俗语言解释。行文简洁有力，直接陈述事实与判断，绝不使用'论文指出/报告/声称'等学术转述句式。"},
@@ -1987,7 +1990,10 @@ def send_email(subject: str, text_body: str, html_body: str) -> None:
 
 
 def run_once() -> None:
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    client = OpenAI(
+        api_key=os.environ["GOOGLE_API_KEY"],
+        base_url=GEMINI_BASE_URL,
+    )
     text_digest, html_digest = build_daily_digest(client)
     official_text, official_html = build_official_monitor_section()
     if official_text:

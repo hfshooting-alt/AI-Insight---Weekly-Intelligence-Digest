@@ -40,13 +40,17 @@ def _excerpt(text: str, limit: int) -> str:
     return out or _clip_zh(sentences[0], limit)
 
 
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+DEFAULT_MODEL = "gemini-2.0-flash"
+
+
 def _llm_client():
-    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    api_key = os.environ.get("GOOGLE_API_KEY", "").strip()
     if not api_key:
         return None
     try:
         from openai import OpenAI
-        return OpenAI(api_key=api_key)
+        return OpenAI(api_key=api_key, base_url=GEMINI_BASE_URL)
     except Exception:
         return None
 
@@ -82,7 +86,7 @@ def summarize_with_llm(cluster: List[NormalizedArticle], topic_keywords: List[st
     client = _llm_client()
     if client is None:
         return None
-    model = os.environ.get("OFFICIAL_MONITOR_SUMMARY_MODEL", os.environ.get("OPENAI_MODEL", "gpt-4o-mini"))
+    model = os.environ.get("OFFICIAL_MONITOR_SUMMARY_MODEL", os.environ.get("GEMINI_MODEL", DEFAULT_MODEL))
     bullets = []
     for a in cluster[:8]:
         body = _excerpt(a.content_text, 280)
@@ -95,8 +99,8 @@ def summarize_with_llm(cluster: List[NormalizedArticle], topic_keywords: List[st
         f"关键词：{','.join(topic_keywords[:8])}\n" + "\n".join(bullets)
     )
     try:
-        resp = client.responses.create(model=model, input=prompt)
-        text = getattr(resp, "output_text", "") or ""
+        resp = client.chat.completions.create(model=model, messages=[{"role": "user", "content": prompt}])
+        text = (resp.choices[0].message.content or "") if resp.choices else ""
     except Exception:
         logger.warning("summarize_with_llm failed", exc_info=True)
         return None
@@ -115,7 +119,7 @@ def summarize_article_with_llm(article: NormalizedArticle) -> str | None:
     client = _llm_client()
     if client is None:
         return None
-    model = os.environ.get("OFFICIAL_MONITOR_SUMMARY_MODEL", os.environ.get("OPENAI_MODEL", "gpt-4o-mini"))
+    model = os.environ.get("OFFICIAL_MONITOR_SUMMARY_MODEL", os.environ.get("GEMINI_MODEL", DEFAULT_MODEL))
     body = _excerpt(article.content_text, 1200)
     prompt = (
         "请将下列官方文章总结为中文，不超过300字，结构为："
@@ -127,8 +131,8 @@ def summarize_article_with_llm(article: NormalizedArticle) -> str | None:
         f"标题：{article.title}\n机构：{article.company_or_firm_name}\n正文：{body}"
     )
     try:
-        resp = client.responses.create(model=model, input=prompt)
-        text = _normalize_text(getattr(resp, "output_text", "") or "")
+        resp = client.chat.completions.create(model=model, messages=[{"role": "user", "content": prompt}])
+        text = _normalize_text((resp.choices[0].message.content or "") if resp.choices else "")
         return _clip_zh(text, 300) if text else None
     except Exception:
         logger.warning("summarize_article_with_llm failed for %s", article.title, exc_info=True)
@@ -152,7 +156,7 @@ def summarize_cluster_bundle_with_llm(cluster: List[NormalizedArticle], topic_ke
     client = _llm_client()
     if client is None:
         return None
-    model = os.environ.get("OFFICIAL_MONITOR_SUMMARY_MODEL", os.environ.get("OPENAI_MODEL", "gpt-4o-mini"))
+    model = os.environ.get("OFFICIAL_MONITOR_SUMMARY_MODEL", os.environ.get("GEMINI_MODEL", DEFAULT_MODEL))
     bullets = []
     for a in cluster[:10]:
         body = _excerpt(a.article_summary_zh or a.content_text, 220)
@@ -169,8 +173,8 @@ def summarize_cluster_bundle_with_llm(cluster: List[NormalizedArticle], topic_ke
         f"关键词：{','.join(topic_keywords[:8])}\n" + "\n".join(bullets)
     )
     try:
-        resp = client.responses.create(model=model, input=prompt)
-        text = getattr(resp, "output_text", "") or ""
+        resp = client.chat.completions.create(model=model, messages=[{"role": "user", "content": prompt}])
+        text = (resp.choices[0].message.content or "") if resp.choices else ""
     except Exception:
         logger.warning("summarize_cluster_bundle_with_llm failed", exc_info=True)
         return None

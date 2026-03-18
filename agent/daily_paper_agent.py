@@ -10,8 +10,10 @@ import html
 import json
 import math
 import os
+import pathlib
 import re
 import smtplib
+import tempfile
 import textwrap
 import time
 from dataclasses import dataclass
@@ -1270,7 +1272,99 @@ def build_day_summary(papers: List[Paper]) -> str:
 
 
 
+PAPERS_DIR = pathlib.Path(os.environ.get("PAPERS_DIR", "papers"))
+
+
+def _extract_arxiv_id(url: str) -> Optional[str]:
+    """Extract arXiv paper ID from various URL formats."""
+    if not url:
+        return None
+    m = re.search(r"arxiv\.org/(?:abs|pdf|html)/(\d{4}\.\d{4,5}(?:v\d+)?)", url)
+    return m.group(1) if m else None
+
+
+def download_pdf(paper: "Paper", dest_dir: pathlib.Path | None = None) -> Optional[pathlib.Path]:
+    """Download the PDF for a paper. Returns the local file path, or None on failure.
+
+    Strategy:
+      1. arXiv papers  -> https://arxiv.org/pdf/{id}.pdf
+      2. Other papers   -> try the paper URL directly if it ends with .pdf
+    """
+    dest_dir = dest_dir or PAPERS_DIR
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    arxiv_id = _extract_arxiv_id(paper.url or "")
+
+    pdf_urls: List[str] = []
+    if arxiv_id:
+        pdf_urls.append(f"https://arxiv.org/pdf/{arxiv_id}.pdf")
+    if (paper.url or "").lower().endswith(".pdf"):
+        pdf_urls.append(paper.url)
+
+    if not pdf_urls:
+        return None
+
+    safe_name = re.sub(r"[^\w\-.]", "_", (paper.title or "paper")[:80]).strip("_")
+    dest_path = dest_dir / f"{safe_name}.pdf"
+
+    for url in pdf_urls:
+        try:
+            resp = requests.get(url, timeout=60, headers=REQUEST_HEADERS, stream=True)
+            resp.raise_for_status()
+            content_type = resp.headers.get("Content-Type", "")
+            if "pdf" not in content_type and "octet-stream" not in content_type:
+                continue
+            with open(dest_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=64 * 1024):
+                    f.write(chunk)
+            if dest_path.stat().st_size > 1024:
+                print(f"[PDF] downloaded: {dest_path.name} ({dest_path.stat().st_size // 1024}KB)")
+                return dest_path
+            else:
+                dest_path.unlink(missing_ok=True)
+        except Exception as exc:
+            print(f"[PDF] download failed from {url}: {exc}")
+            continue
+    return None
+
+
+def extract_text_from_pdf(pdf_path: pathlib.Path, max_chars: int = 60000) -> str:
+    """Extract text from a PDF file using PyMuPDF (fitz)."""
+    try:
+        import fitz  # PyMuPDF
+    except ImportError:
+        print("[PDF] PyMuPDF not installed, skipping PDF text extraction")
+        return ""
+
+    try:
+        doc = fitz.open(str(pdf_path))
+        texts: List[str] = []
+        total = 0
+        for page in doc:
+            page_text = page.get_text("text")
+            texts.append(page_text)
+            total += len(page_text)
+            if total >= max_chars:
+                break
+        doc.close()
+        full = "\n".join(texts)
+        return full[:max_chars]
+    except Exception as exc:
+        print(f"[PDF] text extraction failed for {pdf_path}: {exc}")
+        return ""
+
+
+def fetch_fulltext_via_pdf(paper: "Paper", dest_dir: pathlib.Path | None = None) -> Tuple[str, Optional[pathlib.Path]]:
+    """Download PDF, extract text. Returns (extracted_text, pdf_path)."""
+    pdf_path = download_pdf(paper, dest_dir=dest_dir)
+    if pdf_path is None:
+        return "", None
+    text = extract_text_from_pdf(pdf_path)
+    return text, pdf_path
+
+
 def fetch_fulltext_context(paper: Paper) -> str:
+    """Fallback: fetch full text via HTML scraping (used when PDF is unavailable)."""
     candidates = [paper.url]
     if "arxiv.org/abs/" in (paper.url or ""):
         candidates.append((paper.url or "").replace("/abs/", "/html/"))
@@ -1332,7 +1426,7 @@ def build_prompt(paper: Paper, category: str, fulltext_context: str) -> str:
         摘要：{paper.abstract[:3000] if paper.abstract else "未披露"}
 
         以下是正文提取片段（若为空表示仅抓到摘要）：
-        {fulltext_context[:12000] if fulltext_context else "未抓取到正文"}
+        {fulltext_context[:30000] if fulltext_context else "未抓取到正文"}
         """
     ).strip()
 
@@ -1752,9 +1846,21 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
     score_detail_map: Dict[str, Dict[str, object]] = {}
     skipped_no_fulltext = 0
     abstract_fallback_used = 0
+    # Download PDFs for top 3 papers into papers/ directory
+    pdf_dir = PAPERS_DIR
+    pdf_dir.mkdir(parents=True, exist_ok=True)
+    print(f"[INFO] PDF output directory: {pdf_dir.resolve()}")
+
     for paper in selected:
         category = classify_paper(paper)
-        fulltext_context = fetch_fulltext_context(paper)
+        # Primary: download PDF and extract full text
+        pdf_text, pdf_path = fetch_fulltext_via_pdf(paper, dest_dir=pdf_dir)
+        if len(pdf_text.strip()) >= 2000:
+            fulltext_context = pdf_text
+            print(f"[DEEP] full PDF text for: {paper.title[:60]} ({len(pdf_text)} chars)")
+        else:
+            # Fallback: HTML scraping then abstract
+            fulltext_context = fetch_fulltext_context(paper)
         analysis_context = fulltext_context
         if not has_readable_fulltext(fulltext_context):
             skipped_no_fulltext += 1

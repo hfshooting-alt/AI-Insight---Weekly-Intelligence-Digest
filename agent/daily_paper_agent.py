@@ -1298,15 +1298,20 @@ def has_readable_fulltext(fulltext_context: str) -> bool:
 
 def build_prompt(paper: Paper, category: str, fulltext_context: str) -> str:
     return textwrap.dedent(
-        f"""
-        你是论文原文信息整理 Agent。读者是非AI专业的普通大学教育背景读者。
+        f”””
+        你是一位资深科技行业分析师，正在为科技公司高管撰写前沿技术研究简报。
 
-        你的要求：
-        1) 只写标题、摘要、正文里明确支持的信息，不做猜测。
-        2) 用“说人话”的方式解释，假设读者不是AI专业；术语出现时要顺手解释一句。
-        3) 每段先讲结论，再补一句原因/证据，避免空泛。
-        4) 如果某项在原文缺失，直接写“原文未明确说明”。
-        5) 每一行必须是完整句，不能半句收尾。
+        ── 文风要求 ──
+        1) 采用券商/咨询公司研究报告的简洁笔法：直接陈述事实与判断，主语是技术本身而非”论文”。
+        2) 【禁止】出现以下口吻——“论文提出/报告/声称/指出/认为”、”作者认为/发现”、”本文/该研究”。
+           正确做法：直接写结论。
+           × “论文提出了一种名为NOVA的方法”  → ✓ “NOVA将3D轨迹编码为语义token序列，用自回归范式替代传统匹配式跟踪”
+           × “论文报告说性能提升了20%”       → ✓ “nuScenes基准上AMOTA绝对提升20.2个百分点，达到22.4%”
+           × “论文还明确声称该方法具有优势”   → ✓ “该方案在开放词表场景下仍能保持跟踪连续性，这是此前方法的共性短板”
+        3) 术语首次出现时用括号做一句话注释，之后直接使用。
+        4) 每段先给结论，再补一句关键证据/数据，不说空话。
+        5) 如果某项在原文中缺失，写”原文未披露”。
+        6) 每一行必须是完整句，不能半句收尾。
 
         严格输出以下五行，不要输出其它字段：
         论文想解决什么问题、该问题为什么重要：<2-3句>
@@ -1331,7 +1336,7 @@ def analyze_paper(client: OpenAI, paper: Paper, category: str, fulltext_context:
         model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
         temperature=0.1,
         messages=[
-            {"role": "system", "content": "你是严谨的信息抽取助手。"},
+            {"role": "system", "content": "你是资深科技行业分析师，为科技公司高管撰写技术研究简报。行文简洁有力，直接陈述事实与判断，绝不使用"论文指出/报告/声称"等学术转述句式。"},
             {"role": "user", "content": build_prompt(paper, category, fulltext_context)},
         ],
     )

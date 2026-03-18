@@ -1265,7 +1265,7 @@ def build_day_summary(papers: List[Paper]) -> str:
     total = len(papers)
     world = sum(1 for p in papers if classify_paper(p) == "World Engine")
     infra = total - world
-    return f"今日总篇数：{total}；World Engine：{world}；Data Infra：{infra}"
+    return f"本周总篇数：{total}；World Engine：{world}；Data Infra：{infra}"
 
 
 
@@ -1314,11 +1314,11 @@ def build_prompt(paper: Paper, category: str, fulltext_context: str) -> str:
         6) 每一行必须是完整句，不能半句收尾。
 
         严格输出以下五行，不要输出其它字段：
-        论文想解决什么问题、该问题为什么重要：<2-3句>
-        论文的核心方法是什么、和以前相比如何创新：<2-3句>
-        论文的核心结论：<2-3句>
-        论文的增量价值是什么、会带来什么影响：<2-3句>
-        论文的局限性和不确定性、没有解决什么问题：<2-3句>
+        问题与背景：<2-3句>
+        核心方法与创新：<2-3句>
+        关键结论：<2-3句>
+        增量价值与影响：<2-3句>
+        局限与开放问题：<2-3句>
 
         论文标题：{paper.title}
         分类：{category}
@@ -1353,23 +1353,26 @@ def clean_symbols(text: str) -> str:
 
 def parse_structured_analysis(text: str) -> Dict[str, str]:
     keys = [
-        "论文想解决什么问题、该问题为什么重要",
-        "论文的核心方法是什么、和以前相比如何创新",
-        "论文的核心结论",
-        "论文的增量价值是什么、会带来什么影响",
-        "论文的局限性和不确定性、没有解决什么问题",
+        "问题与背景",
+        "核心方法与创新",
+        "关键结论",
+        "增量价值与影响",
+        "局限与开放问题",
     ]
     aliases = {
-        "论文想解决什么问题、该问题为什么重要": "论文想解决什么问题、该问题为什么重要",
-        "问题与重要性": "论文想解决什么问题、该问题为什么重要",
-        "论文的核心方法是什么、和以前相比如何创新": "论文的核心方法是什么、和以前相比如何创新",
-        "核心方法与创新": "论文的核心方法是什么、和以前相比如何创新",
-        "论文的核心结论": "论文的核心结论",
-        "核心结论": "论文的核心结论",
-        "论文的增量价值是什么、会带来什么影响": "论文的增量价值是什么、会带来什么影响",
-        "增量价值与影响": "论文的增量价值是什么、会带来什么影响",
-        "论文的局限性和不确定性、没有解决什么问题": "论文的局限性和不确定性、没有解决什么问题",
-        "局限性和不确定性": "论文的局限性和不确定性、没有解决什么问题",
+        "问题与背景": "问题与背景",
+        "论文想解决什么问题、该问题为什么重要": "问题与背景",
+        "问题与重要性": "问题与背景",
+        "核心方法与创新": "核心方法与创新",
+        "论文的核心方法是什么、和以前相比如何创新": "核心方法与创新",
+        "关键结论": "关键结论",
+        "论文的核心结论": "关键结论",
+        "核心结论": "关键结论",
+        "增量价值与影响": "增量价值与影响",
+        "论文的增量价值是什么、会带来什么影响": "增量价值与影响",
+        "局限与开放问题": "局限与开放问题",
+        "论文的局限性和不确定性、没有解决什么问题": "局限与开放问题",
+        "局限性和不确定性": "局限与开放问题",
     }
 
     data: Dict[str, str] = {k: "未披露" for k in keys}
@@ -1455,11 +1458,11 @@ def render_paper_block(index: int, item: AnalyzedPaper, parsed: Dict[str, str], 
         f"发布时间：{published_bj}（北京时间）",
         f"链接：{paper.url}",
         f"作者：{format_author_orgs(paper)}",
-        f"论文想解决什么问题、该问题为什么重要：{parsed['论文想解决什么问题、该问题为什么重要']}",
-        f"论文的核心方法是什么、和以前相比如何创新：{parsed['论文的核心方法是什么、和以前相比如何创新']}",
-        f"论文的核心结论：{parsed['论文的核心结论']}",
-        f"论文的增量价值是什么、会带来什么影响：{parsed['论文的增量价值是什么、会带来什么影响']}",
-        f"论文的局限性和不确定性、没有解决什么问题：{parsed['论文的局限性和不确定性、没有解决什么问题']}",
+        f"问题与背景：{parsed['问题与背景']}",
+        f"核心方法与创新：{parsed['核心方法与创新']}",
+        f"关键结论：{parsed['关键结论']}",
+        f"增量价值与影响：{parsed['增量价值与影响']}",
+        f"局限与开放问题：{parsed['局限与开放问题']}",
     ]
 
 
@@ -1469,11 +1472,11 @@ def fallback_structured_analysis(paper: Paper, category: str, reason: str = "") 
     no_data_msg = "本条未能抓取到稳定正文，以下结论基于题目与摘要，需后续复核。"
     reason_text = f"（{reason}）" if reason else ""
     return {
-        "论文想解决什么问题、该问题为什么重要": short_abstract or f"{no_data_msg}{reason_text}",
-        "论文的核心方法是什么、和以前相比如何创新": "正文抓取受限，方法细节暂无法完整还原，建议后续二次精读原文。",
-        "论文的核心结论": "正文抓取受限，暂无法给出高置信结论。",
-        "论文的增量价值是什么、会带来什么影响": f"该论文归属“{category}”方向，具备跟踪价值；当前仅可做低置信观察。",
-        "论文的局限性和不确定性、没有解决什么问题": "当前最大不确定性来自正文不可得或信息不足，结论可能与原文存在偏差。",
+        “问题与背景”: short_abstract or f”{no_data_msg}{reason_text}”,
+        “核心方法与创新”: “正文抓取受限，方法细节暂无法完整还原，建议后续二次精读原文。”,
+        “关键结论”: “正文抓取受限，暂无法给出高置信结论。”,
+        “增量价值与影响”: f”该论文归属”{category}”方向，具备跟踪价值；当前仅可做低置信观察。”,
+        “局限与开放问题”: “当前最大不确定性来自正文不可得或信息不足，结论可能与原文存在偏差。”,
     }
 
 
@@ -1489,10 +1492,10 @@ def ensure_structured_analysis_content(parsed: Dict[str, str], paper: Paper, cat
 def build_overview_lines(items: List[AnalyzedPaper]) -> List[str]:
     if not items:
         return [
-            "今日总篇数：0",
-            "Top 3（按GitHub/X/Reddit综合重要性评分）：无",
-            "当日趋势：无",
-            "总体判断：今天未检索到符合条件的论文。",
+            "本周总篇数：0",
+            "重要性 Top 3：无",
+            "本周趋势：无",
+            "总体判断：本周未检索到符合条件的论文。",
         ]
 
     top3 = sorted(items, key=lambda x: (x.discussion_score, x.early_score), reverse=True)[:3]
@@ -1506,13 +1509,12 @@ def build_overview_lines(items: List[AnalyzedPaper]) -> List[str]:
     if any(k in trend_pool for k in ["benchmark", "evaluation", "评测", "部署", "latency"]):
         trend_lines.append("评测与部署指标被更频繁地前置到研究叙述")
     if not trend_lines:
-        trend_lines = ["当日样本较少，趋势信号有限"]
+        trend_lines = ["本周样本较少，趋势信号有限"]
 
     return [
-        f"今日总篇数：{len(items)}",
-        "Top 3（按GitHub/X/Reddit综合重要性评分）：" + "；".join([f"{i+1}.{x.paper.title}" for i, x in enumerate(top3)]),
-        "当日趋势：" + "；".join(trend_lines[:3]),
-        "总体判断：今天的高相关论文以工程落地信息为主，适合用于技术路线和投资跟踪。",
+        f"本周总篇数：{len(items)}",
+        "重要性 Top 3：" + "；".join([f"{i+1}.{x.paper.title}" for i, x in enumerate(top3)]),
+        "本周趋势：" + "；".join(trend_lines[:3]),
     ]
 
 
@@ -1551,9 +1553,8 @@ def to_html(report_text: str) -> str:
     period = ""
     overview = {
         "本周总篇数": "0",
-        "Top 3 论文": "无",
+        "重要性 Top 3": "无",
         "本周趋势": "无",
-        "总体判断": "暂无可用结论",
     }
 
     papers: List[Dict[str, str]] = []
@@ -1566,14 +1567,14 @@ def to_html(report_text: str) -> str:
             overview["本周总篇数"] = ln.split("：", 1)[1].strip()
         elif ln.startswith("本周总篇数："):
             overview["本周总篇数"] = ln.split("：", 1)[1].strip()
+        elif ln.startswith("重要性 Top 3："):
+            overview["重要性 Top 3"] = ln.split("：", 1)[1].strip()
         elif ln.startswith("Top 3（按GitHub/X/Reddit综合重要性评分）："):
-            overview["Top 3 论文"] = ln.split("：", 1)[1].strip()
+            overview["重要性 Top 3"] = ln.split("：", 1)[1].strip()
         elif ln.startswith("本周趋势："):
             overview["本周趋势"] = ln.split("：", 1)[1].strip()
         elif ln.startswith("当日趋势："):
             overview["本周趋势"] = ln.split("：", 1)[1].strip()
-        elif ln.startswith("总体判断："):
-            overview["总体判断"] = ln.split("：", 1)[1].strip()
         elif ln.startswith("标题："):
             if current:
                 papers.append(current)
@@ -1608,15 +1609,15 @@ def to_html(report_text: str) -> str:
             current["author"] = ln.split("：", 1)[1].strip()
         elif current and ln.startswith("链接："):
             current["link"] = ln.split("：", 1)[1].strip()
-        elif current and ln.startswith("论文想解决什么问题、该问题为什么重要："):
+        elif current and ln.startswith("问题与背景："):
             current["problem"] = ln.split("：", 1)[1].strip()
-        elif current and ln.startswith("论文的核心方法是什么、和以前相比如何创新："):
+        elif current and ln.startswith("核心方法与创新："):
             current["method"] = ln.split("：", 1)[1].strip()
-        elif current and ln.startswith("论文的核心结论："):
+        elif current and ln.startswith("关键结论："):
             current["conclusion"] = ln.split("：", 1)[1].strip()
-        elif current and ln.startswith("论文的增量价值是什么、会带来什么影响："):
+        elif current and ln.startswith("增量价值与影响："):
             current["value"] = ln.split("：", 1)[1].strip()
-        elif current and ln.startswith("论文的局限性和不确定性、没有解决什么问题："):
+        elif current and ln.startswith("局限与开放问题："):
             current["risk"] = ln.split("：", 1)[1].strip()
 
     if current:
@@ -1636,24 +1637,24 @@ def to_html(report_text: str) -> str:
                   <div style='font-size:13px;color:#6B7280;line-height:1.7;margin-bottom:12px'>作者：{html.escape(compact_author_line(p.get('author','')))} ｜ {link_html}</div>
 
                   <div style='background:#F8FAFC;border:1px solid #E5E7EB;border-radius:12px;padding:12px 14px;margin-bottom:10px'>
-                    <div style='font-size:18px;font-weight:700;color:#111827;margin-bottom:8px'>论文想解决什么问题、该问题为什么重要</div>
-                    <div style='font-size:18px;line-height:1.9;color:#111827'>{pretty_text(p.get('problem',''))}</div>
+                    <div style='font-size:14px;font-weight:700;color:#2563EB;margin-bottom:6px'>问题与背景</div>
+                    <div style='font-size:15px;line-height:1.7;color:#111827'>{pretty_text(p.get('problem',''))}</div>
                   </div>
                   <div style='background:#F8FAFC;border:1px solid #E5E7EB;border-radius:12px;padding:12px 14px;margin-bottom:10px'>
-                    <div style='font-size:18px;font-weight:700;color:#111827;margin-bottom:8px'>论文的核心方法是什么、和以前相比如何创新</div>
-                    <div style='font-size:18px;line-height:1.9;color:#111827'>{pretty_text(p.get('method',''))}</div>
+                    <div style='font-size:14px;font-weight:700;color:#2563EB;margin-bottom:6px'>核心方法与创新</div>
+                    <div style='font-size:15px;line-height:1.7;color:#111827'>{pretty_text(p.get('method',''))}</div>
                   </div>
                   <div style='background:#F8FAFC;border:1px solid #E5E7EB;border-radius:12px;padding:12px 14px;margin-bottom:10px'>
-                    <div style='font-size:18px;font-weight:700;color:#111827;margin-bottom:8px'>论文的核心结论</div>
-                    <div style='font-size:18px;line-height:1.9;color:#111827'>{pretty_text(p.get('conclusion',''))}</div>
+                    <div style='font-size:14px;font-weight:700;color:#2563EB;margin-bottom:6px'>关键结论</div>
+                    <div style='font-size:15px;line-height:1.7;color:#111827'>{pretty_text(p.get('conclusion',''))}</div>
                   </div>
                   <div style='background:#F8FAFC;border:1px solid #E5E7EB;border-radius:12px;padding:12px 14px;margin-bottom:10px'>
-                    <div style='font-size:18px;font-weight:700;color:#111827;margin-bottom:8px'>论文的增量价值是什么、会带来什么影响</div>
-                    <div style='font-size:18px;line-height:1.9;color:#111827'>{pretty_text(p.get('value',''))}</div>
+                    <div style='font-size:14px;font-weight:700;color:#2563EB;margin-bottom:6px'>增量价值与影响</div>
+                    <div style='font-size:15px;line-height:1.7;color:#111827'>{pretty_text(p.get('value',''))}</div>
                   </div>
                   <div style='background:#F8FAFC;border:1px solid #E5E7EB;border-radius:12px;padding:12px 14px'>
-                    <div style='font-size:18px;font-weight:700;color:#111827;margin-bottom:8px'>论文的局限性和不确定性、没有解决什么问题</div>
-                    <div style='font-size:18px;line-height:1.9;color:#111827'>{pretty_text(p.get('risk',''))}</div>
+                    <div style='font-size:14px;font-weight:700;color:#2563EB;margin-bottom:6px'>局限与开放问题</div>
+                    <div style='font-size:15px;line-height:1.7;color:#111827'>{pretty_text(p.get('risk',''))}</div>
                   </div>
                 </td></tr>
               </table>
@@ -1662,10 +1663,9 @@ def to_html(report_text: str) -> str:
         )
 
     overview_row = f"""
-      <tr><td style='padding:0 0 8px 0;font-size:16px;line-height:1.7;color:#111827'><span style='font-weight:600'>筛选时间：</span>{html.escape(period or '未披露')}</td></tr>
-      <tr><td style='padding:0 0 8px 0;font-size:16px;line-height:1.7;color:#111827'><span style='font-weight:600'>Top 3 论文：</span>{html.escape(overview['Top 3 论文'])}</td></tr>
-      <tr><td style='padding:0 0 8px 0;font-size:16px;line-height:1.7;color:#111827'><span style='font-weight:600'>本周趋势：</span>{html.escape(overview['本周趋势'])}</td></tr>
-      <tr><td style='padding:0;font-size:16px;line-height:1.7;color:#111827'><span style='font-weight:600'>总体判断：</span>{html.escape(overview['总体判断'])}</td></tr>
+      <tr><td style='padding:0 0 8px 0;font-size:15px;line-height:1.7;color:#111827'><span style='font-weight:600'>筛选时间：</span>{html.escape(period or '未披露')}</td></tr>
+      <tr><td style='padding:0 0 8px 0;font-size:15px;line-height:1.7;color:#111827'><span style='font-weight:600'>重要性 Top 3：</span>{html.escape(overview['重要性 Top 3'])}</td></tr>
+      <tr><td style='padding:0;font-size:15px;line-height:1.7;color:#111827'><span style='font-weight:600'>本周趋势：</span>{html.escape(overview['本周趋势'])}</td></tr>
     """
 
     return f"""
@@ -1718,10 +1718,9 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
         text = (
             "World Engine 与 Data Infra 论文周报\n"
             f"筛选时间（北京时间）：{start.strftime('%Y-%m-%d')} 至 {end.strftime('%Y-%m-%d')}\n"
-            "今日总篇数：0\n"
-            "Top 3（按GitHub/X/Reddit综合重要性评分）：无\n"
-            "当日趋势：无\n"
-            "总体判断：在目标时间窗内未检索到符合条件的论文。"
+            "本周总篇数：0\n"
+            "重要性 Top 3：无\n"
+            "本周趋势：无"
         )
         cleaned = clean_symbols(text)
         return cleaned, to_html(cleaned)
@@ -1774,10 +1773,9 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
         text = (
             "World Engine 与 Data Infra 论文周报\n"
             f"筛选时间（北京时间）：{start.strftime('%Y-%m-%d')} 至 {end.strftime('%Y-%m-%d')}\n"
-            "今日总篇数：0\n"
-            "Top 3（按GitHub/X/Reddit综合重要性评分）：无\n"
-            "当日趋势：无\n"
-            f"总体判断：候选论文正文抓取不足（正文不足{skipped_no_fulltext}篇），且摘要信息也不足，未生成解读。"
+            "本周总篇数：0\n"
+            "重要性 Top 3：无\n"
+            f"本周趋势：候选论文正文抓取不足（{skipped_no_fulltext}篇），信息不足未生成解读"
         )
         cleaned = clean_symbols(text)
         return cleaned, to_html(cleaned)

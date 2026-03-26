@@ -41,7 +41,7 @@ def _excerpt(text: str, limit: int) -> str:
 
 
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
-DEFAULT_MODEL = "gemini-2.0-flash"
+DEFAULT_MODEL = "gemini-3.0-flash-preview"
 
 
 def _llm_client():
@@ -99,7 +99,7 @@ def summarize_with_llm(cluster: List[NormalizedArticle], topic_keywords: List[st
         f"关键词：{','.join(topic_keywords[:8])}\n" + "\n".join(bullets)
     )
     try:
-        resp = client.chat.completions.create(model=model, max_tokens=8192, messages=[{"role": "user", "content": prompt}])
+        resp = client.chat.completions.create(model=model, max_tokens=65536, messages=[{"role": "user", "content": prompt}])
         text = (resp.choices[0].message.content or "") if resp.choices else ""
     except Exception:
         logger.warning("summarize_with_llm failed", exc_info=True)
@@ -131,7 +131,7 @@ def summarize_article_with_llm(article: NormalizedArticle) -> str | None:
         f"标题：{article.title}\n机构：{article.company_or_firm_name}\n正文：{body}"
     )
     try:
-        resp = client.chat.completions.create(model=model, max_tokens=8192, messages=[{"role": "user", "content": prompt}])
+        resp = client.chat.completions.create(model=model, max_tokens=65536, messages=[{"role": "user", "content": prompt}])
         text = _normalize_text((resp.choices[0].message.content or "") if resp.choices else "")
         return _clip_zh(text, 300) if text else None
     except Exception:
@@ -173,7 +173,7 @@ def summarize_cluster_bundle_with_llm(cluster: List[NormalizedArticle], topic_ke
         f"关键词：{','.join(topic_keywords[:8])}\n" + "\n".join(bullets)
     )
     try:
-        resp = client.chat.completions.create(model=model, max_tokens=8192, messages=[{"role": "user", "content": prompt}])
+        resp = client.chat.completions.create(model=model, max_tokens=65536, messages=[{"role": "user", "content": prompt}])
         text = (resp.choices[0].message.content or "") if resp.choices else ""
     except Exception:
         logger.warning("summarize_cluster_bundle_with_llm failed", exc_info=True)

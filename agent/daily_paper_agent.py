@@ -27,7 +27,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from openai import OpenAI
 
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
-DEFAULT_MODEL = "gemini-2.0-flash"
+DEFAULT_MODEL = "gemini-3.0-flash-preview"
 
 BEIJING_TZ = dt.timezone(dt.timedelta(hours=8))
 
@@ -1286,12 +1286,15 @@ def _extract_arxiv_id(url: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
-def download_pdf(paper: "Paper", dest_dir: pathlib.Path | None = None) -> Optional[pathlib.Path]:
+def download_pdf(paper: "Paper", dest_dir: pathlib.Path | None = None, max_retries: int = 3) -> Optional[pathlib.Path]:
     """Download the PDF for a paper. Returns the local file path, or None on failure.
 
     Strategy:
       1. arXiv papers  -> https://arxiv.org/pdf/{id}.pdf
       2. Other papers   -> try the paper URL directly if it ends with .pdf
+
+    Retries each URL up to *max_retries* times with exponential backoff to
+    handle transient failures and arXiv rate-limiting (HTTP 429 / 503).
     """
     dest_dir = dest_dir or PAPERS_DIR
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -1305,29 +1308,43 @@ def download_pdf(paper: "Paper", dest_dir: pathlib.Path | None = None) -> Option
         pdf_urls.append(paper.url)
 
     if not pdf_urls:
+        print(f"[PDF] no downloadable URL for: {(paper.title or '')[:60]}")
         return None
 
     safe_name = re.sub(r"[^\w\-.]", "_", (paper.title or "paper")[:80]).strip("_")
     dest_path = dest_dir / f"{safe_name}.pdf"
 
     for url in pdf_urls:
-        try:
-            resp = requests.get(url, timeout=60, headers=REQUEST_HEADERS, stream=True)
-            resp.raise_for_status()
-            content_type = resp.headers.get("Content-Type", "")
-            if "pdf" not in content_type and "octet-stream" not in content_type:
+        for attempt in range(1, max_retries + 1):
+            try:
+                resp = requests.get(url, timeout=60, headers=REQUEST_HEADERS, stream=True)
+                if resp.status_code in (429, 503):
+                    wait = 2 ** attempt
+                    print(f"[PDF] rate-limited ({resp.status_code}), retry {attempt}/{max_retries} after {wait}s: {url}")
+                    import time; time.sleep(wait)
+                    continue
+                resp.raise_for_status()
+                content_type = resp.headers.get("Content-Type", "")
+                if "pdf" not in content_type and "octet-stream" not in content_type:
+                    print(f"[PDF] unexpected content-type '{content_type}' from {url}, skipping")
+                    break  # try next URL, not next retry
+                with open(dest_path, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=64 * 1024):
+                        f.write(chunk)
+                if dest_path.stat().st_size > 1024:
+                    print(f"[PDF] downloaded: {dest_path.name} ({dest_path.stat().st_size // 1024}KB)")
+                    return dest_path
+                else:
+                    dest_path.unlink(missing_ok=True)
+                    print(f"[PDF] file too small (<1KB), discarded: {dest_path.name}")
+                    break
+            except Exception as exc:
+                wait = 2 ** attempt
+                print(f"[PDF] attempt {attempt}/{max_retries} failed for {url}: {exc}")
+                if attempt < max_retries:
+                    import time; time.sleep(wait)
                 continue
-            with open(dest_path, "wb") as f:
-                for chunk in resp.iter_content(chunk_size=64 * 1024):
-                    f.write(chunk)
-            if dest_path.stat().st_size > 1024:
-                print(f"[PDF] downloaded: {dest_path.name} ({dest_path.stat().st_size // 1024}KB)")
-                return dest_path
-            else:
-                dest_path.unlink(missing_ok=True)
-        except Exception as exc:
-            print(f"[PDF] download failed from {url}: {exc}")
-            continue
+    print(f"[PDF] all attempts exhausted for: {(paper.title or '')[:60]}")
     return None
 
 
@@ -1438,7 +1455,7 @@ def analyze_paper(client: OpenAI, paper: Paper, category: str, fulltext_context:
     completion = client.chat.completions.create(
         model=os.environ.get("GEMINI_MODEL", DEFAULT_MODEL),
         temperature=0.1,
-        max_tokens=8192,
+        max_tokens=65536,
         messages=[
             {"role": "system", "content": "你是资深科技行业分析师，为科技公司高管撰写技术研究简报。读者是聪明但非技术专家的企业高管，所有专业术语必须用通俗语言解释。行文简洁有力，直接陈述事实与判断，绝不使用'论文指出/报告/声称'等学术转述句式。"},
             {"role": "user", "content": build_prompt(paper, category, fulltext_context)},
@@ -1855,9 +1872,13 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
     pdf_dir.mkdir(parents=True, exist_ok=True)
     print(f"[INFO] PDF output directory: {pdf_dir.resolve()}")
 
-    for paper in selected:
+    for paper_idx, paper in enumerate(selected):
         category = classify_paper(paper)
+        # Delay between downloads to avoid arXiv rate-limiting
+        if paper_idx > 0:
+            import time; time.sleep(3)
         # Primary: download PDF and extract full text
+        print(f"[INFO] Processing paper {paper_idx + 1}/{len(selected)}: {(paper.title or '')[:60]}")
         pdf_text, pdf_path = fetch_fulltext_via_pdf(paper, dest_dir=pdf_dir)
         if len(pdf_text.strip()) >= 2000:
             fulltext_context = pdf_text

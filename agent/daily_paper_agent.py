@@ -1951,7 +1951,18 @@ def build_official_monitor_section() -> Tuple[str, str]:
 
         lookback = int(os.environ.get("OFFICIAL_MONITOR_LOOKBACK_DAYS", "7"))
         max_per_source = int(os.environ.get("OFFICIAL_MONITOR_MAX_PER_SOURCE", "20"))
-        summary, _, clusters = run_pipeline(lookback_days=lookback, max_articles_per_source=max_per_source)
+        summary, deduped_articles, clusters, kept_articles, reflection_result = run_pipeline(lookback_days=lookback, max_articles_per_source=max_per_source)
+
+        # Store monitor metrics for run_history (consumed by run_once)
+        build_official_monitor_section._last_metrics = {
+            "signal_articles_fetched": summary.fetched_articles,
+            "signal_articles_deduped": summary.deduped_articles,
+            "signal_articles_kept": summary.kept_articles,
+            "signal_clusters": summary.topic_clusters,
+            "signal_drop_reasons": summary.drop_reasons,
+            "reflection": reflection_result,
+        }
+
         if not clusters:
             text = "本周 AI 官方信号图谱\n本周无核心异动"
             html_block = (
@@ -2036,6 +2047,21 @@ def run_once() -> None:
         html_body=html_digest,
     )
     print("[OK] weekly digest sent")
+
+    # ── Record run metrics to run_history.jsonl ──
+    try:
+        from run_history import record_run
+        monitor_metrics = getattr(build_official_monitor_section, "_last_metrics", {})
+        record_run(
+            signal_articles_fetched=monitor_metrics.get("signal_articles_fetched", 0),
+            signal_articles_deduped=monitor_metrics.get("signal_articles_deduped", 0),
+            signal_articles_kept=monitor_metrics.get("signal_articles_kept", 0),
+            signal_clusters=monitor_metrics.get("signal_clusters", 0),
+            signal_drop_reasons=monitor_metrics.get("signal_drop_reasons"),
+            reflection=monitor_metrics.get("reflection"),
+        )
+    except Exception as exc:
+        print(f"[WARN] failed to record run history: {exc}")
 
 
 def run_scheduler() -> None:

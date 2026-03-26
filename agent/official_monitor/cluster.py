@@ -6,6 +6,10 @@ from typing import Dict, List
 
 from .models import NormalizedArticle
 
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+from config import cfg
+
 CLUSTER_KEYWORDS = [
     "reasoning", "multimodal", "agent", "inference", "compute", "gpu", "api", "enterprise", "robotics",
     "人工智能", "大模型", "智能体", "推理", "多模态", "算力", "芯片", "云", "开发者平台", "融资", "并购",
@@ -30,18 +34,22 @@ def _similar(a: NormalizedArticle, b: NormalizedArticle) -> float:
     union = len(ta | tb) or 1
     j = inter / union
     days = abs((_date(a) - _date(b)).days)
-    time_bonus = 0.08 if days <= 2 else 0.0
-    same_signal = 0.05 if a.signal_type == b.signal_type else 0.0
+    time_bonus = cfg("cluster.time_bonus", 0.08) if days <= 2 else 0.0
+    same_signal = cfg("cluster.same_signal_bonus", 0.05) if a.signal_type == b.signal_type else 0.0
     return j + time_bonus + same_signal
 
 
 def cluster_articles(items: List[NormalizedArticle]) -> List[List[NormalizedArticle]]:
+    threshold = cfg("cluster.initial_threshold", 0.42)
+    max_size = cfg("cluster.max_cluster_size", 4)
+    strict_sim = cfg("cluster.strict_threshold", 0.48)
+
     clusters: List[List[NormalizedArticle]] = []
     for it in sorted(items, key=lambda x: x.importance_score, reverse=True):
         placed = False
         for c in clusters:
             sim = max(_similar(it, e) for e in c)
-            if sim >= 0.42:
+            if sim >= threshold:
                 c.append(it)
                 placed = True
                 break
@@ -50,12 +58,9 @@ def cluster_articles(items: List[NormalizedArticle]) -> List[List[NormalizedArti
 
     refined: List[List[NormalizedArticle]] = []
     for c in clusters:
-        refined.extend(_split_oversized_cluster(c, max_cluster_size=4, strict_sim=0.48))
+        refined.extend(_split_oversized_cluster(c, max_cluster_size=max_size, strict_sim=strict_sim))
 
-    # keep tiny weak clusters separate; do not force-merge unrelated events.
     return [sorted(c, key=lambda x: x.importance_score, reverse=True) for c in refined if c]
-
-
 
 
 def _split_oversized_cluster(cluster: List[NormalizedArticle], max_cluster_size: int = 4, strict_sim: float = 0.48) -> List[List[NormalizedArticle]]:
@@ -86,7 +91,8 @@ def build_topic_meta(cluster: List[NormalizedArticle], idx: int) -> Dict[str, ob
         if inst:
             institutions[inst] += 1
 
-    top_keywords = [k for k, _ in tokens.most_common(8)]
+    max_kw = cfg("cluster.max_keywords", 8)
+    top_keywords = [k for k, _ in tokens.most_common(max_kw)]
     trend_buckets = {
         "产品化与企业落地": ["platform", "api", "enterprise", "deployment", "产品", "发布", "platform"],
         "算力基础设施升级": ["gpu", "compute", "cloud", "芯片", "算力", "inference"],
@@ -111,7 +117,6 @@ def build_topic_meta(cluster: List[NormalizedArticle], idx: int) -> Dict[str, ob
     else:
         title = "AI行业产品化与落地进展"
 
-    # Add concise disambiguator to avoid repeated identical titles across clusters.
     generic = {
         "agent", "api", "platform", "enterprise", "capital", "ecosystem", "compute", "robotics",
         "投资", "融资", "并购", "合作", "算力", "平台", "发布", "sig:product_release", "sig:investment_signal", "sig:partnership",
@@ -120,15 +125,19 @@ def build_topic_meta(cluster: List[NormalizedArticle], idx: int) -> Dict[str, ob
     if dis:
         title = f"{title}｜{'/'.join(dis)}"
 
-    # Encourage industry-trend framing with multi-company hint.
     org_count = len(institutions)
-    if org_count >= 3:
+    multi_org = cfg("cluster.multi_org_threshold", 3)
+    if org_count >= multi_org:
         title = f"{title}（多机构共振）"
+
+    conf_base = cfg("cluster.confidence_base", 0.45)
+    conf_per = cfg("cluster.confidence_per_article", 0.08)
+    conf_cap = cfg("cluster.confidence_cap", 0.95)
 
     return {
         "topic_cluster_id": f"topic_{idx:03d}",
         "topic_title": title,
-        "topic_keywords": top_keywords[:8],
-        "cluster_confidence_score": round(min(0.95, 0.45 + 0.08 * len(cluster)), 2),
+        "topic_keywords": top_keywords[:max_kw],
+        "cluster_confidence_score": round(min(conf_cap, conf_base + conf_per * len(cluster)), 2),
         "topic_priority_score": round(min(100.0, sum(a.importance_score for a in cluster) / max(len(cluster), 1)), 1),
     }

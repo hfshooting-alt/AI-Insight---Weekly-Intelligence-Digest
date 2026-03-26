@@ -43,5 +43,6 @@ jobs:
           path: |
             papers/*.pdf
             papers/*.xlsx
+            papers/run_history.jsonl
           if-no-files-found: ignore
           retention-days: 30

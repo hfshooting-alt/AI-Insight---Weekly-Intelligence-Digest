@@ -29,6 +29,10 @@ from .summarize import (
 )
 from .export import export_raw_articles_excel
 
+import sys as _sys
+_sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1]))
+from config import cfg
+
 
 def _log(event: str, **kwargs) -> None:
     payload = {"event": event, **kwargs}
@@ -361,7 +365,9 @@ def _cluster_sim(c1: List[NormalizedArticle], c2: List[NormalizedArticle]) -> fl
     union = len(s1 | s2) or 1
     return inter / union
 
-def _merge_small_clusters(clusters: List[List[NormalizedArticle]], min_cluster_size: int = 2, min_merge_sim: float = 0.22) -> List[List[NormalizedArticle]]:
+def _merge_small_clusters(clusters: List[List[NormalizedArticle]], min_cluster_size: int | None = None, min_merge_sim: float | None = None) -> List[List[NormalizedArticle]]:
+    min_cluster_size = min_cluster_size if min_cluster_size is not None else cfg("cluster_merge.min_cluster_size", 2)
+    min_merge_sim = min_merge_sim if min_merge_sim is not None else cfg("cluster_merge.min_merge_sim", 0.22)
     clusters = [sorted(c, key=lambda x: x.importance_score, reverse=True) for c in clusters if c]
     if not clusters:
         return []
@@ -398,7 +404,9 @@ def _split_cluster_by_signal(cluster: List[NormalizedArticle]) -> List[List[Norm
     return [cluster[:mid], cluster[mid:]] if len(cluster) > 1 else [cluster]
 
 
-def _rebalance_cluster_count(clusters: List[List[NormalizedArticle]], min_topics: int = 2, max_topics: int = 4) -> List[List[NormalizedArticle]]:
+def _rebalance_cluster_count(clusters: List[List[NormalizedArticle]], min_topics: int | None = None, max_topics: int | None = None) -> List[List[NormalizedArticle]]:
+    min_topics = min_topics if min_topics is not None else cfg("cluster_merge.min_topics", 2)
+    max_topics = max_topics if max_topics is not None else cfg("cluster_merge.max_topics", 4)
     clusters = [c for c in clusters if c]
     if not clusters:
         return clusters
@@ -437,7 +445,7 @@ def _rebalance_cluster_count(clusters: List[List[NormalizedArticle]], min_topics
     return [sorted(c, key=lambda x: x.importance_score, reverse=True) for c in clusters if c]
 
 
-def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> Tuple[RunSummary, List[NormalizedArticle], List[TopicCluster]]:
+def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> Tuple[RunSummary, List[NormalizedArticle], List[TopicCluster], List[NormalizedArticle], dict | None]:
     started = now_utc()
     sources = load_sources()
     drop_reasons = defaultdict(int)
@@ -452,7 +460,7 @@ def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> T
         _log("source_fetch_start", source=s.source_name, landing=s.landing_url)
         listing_urls = discover_listing_urls(s)
         source_candidates = []
-        for lu in listing_urls[:6]:
+        for lu in listing_urls[:cfg("pipeline.listing_urls_limit", 6)]:
             html = fetch_url(lu)
             if not html:
                 continue
@@ -611,10 +619,19 @@ def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> T
     )
     _log("topic_generation_complete", topics=len(topic_clusters))
     _log("final_report_summary", deduped=len(deduped), topics=len(topic_clusters))
-    return summary, deduped, topic_clusters
+
+    # ── Post-pipeline self-reflection: evaluate filtering quality ──
+    reflection_result = None
+    try:
+        from .reflection import reflect_on_filtering
+        reflection_result = reflect_on_filtering(deduped, cleaned, topic_clusters)
+    except Exception as exc:
+        _log("reflection_error", error=str(exc))
+
+    return summary, deduped, topic_clusters, cleaned, reflection_result
 
 
-def sample_run_data() -> Tuple[RunSummary, List[NormalizedArticle], List[TopicCluster]]:
+def sample_run_data() -> Tuple[RunSummary, List[NormalizedArticle], List[TopicCluster], List[NormalizedArticle], None]:
     from .models import NormalizedArticle
     now = now_utc().isoformat()
     arts = [
@@ -637,4 +654,4 @@ def sample_run_data() -> Tuple[RunSummary, List[NormalizedArticle], List[TopicCl
             sup.append({"article_id":a.article_id,"title":a.title,"institution_name":a.company_or_firm_name,"published_at":a.published_at,"article_summary_zh":a.article_summary_zh,"source_link_markdown":source_link_markdown(a.company_or_firm_name,a.url),"url":a.url})
         topic_clusters.append(TopicCluster(topic_cluster_id=m["topic_cluster_id"],topic_title=m["topic_title"],event_summary=ev,topic_keywords=m["topic_keywords"],strategic_signal=sig,article_count=len(cl),sources=sorted(list({a.company_or_firm_name for a in cl})),cluster_confidence_score=m["cluster_confidence_score"],topic_priority_score=m["topic_priority_score"],supporting_articles=sup))
     summary=RunSummary(started_at=now,finished_at=now,lookback_days=7,trusted_sources=35,covered_sources=3,fetched_articles=3,kept_articles=3,deduped_articles=len(ded),topic_clusters=len(topic_clusters),drop_reasons={})
-    return summary,ded,topic_clusters
+    return summary, ded, topic_clusters, ded, None

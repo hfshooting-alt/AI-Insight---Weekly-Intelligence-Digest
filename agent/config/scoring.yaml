@@ -1,0 +1,191 @@
+# ============================================================
+# Scoring & Pipeline Configuration
+# All tunable parameters externalized from code.
+# Edit this file to adjust behavior without modifying code.
+# ============================================================
+
+# ── Official Monitor: Clustering ────────────────────────────
+cluster:
+  time_bonus: 0.08          # similarity bonus when articles published ≤2 days apart
+  same_signal_bonus: 0.05   # similarity bonus when signal_type matches
+  initial_threshold: 0.42   # min similarity to join existing cluster
+  strict_threshold: 0.48    # threshold when splitting oversized clusters
+  max_cluster_size: 4
+  confidence_base: 0.45     # base confidence score
+  confidence_per_article: 0.08
+  confidence_cap: 0.95
+  max_keywords: 8
+  multi_org_threshold: 3    # ≥N orgs to label "multi-institutional resonance"
+
+# ── Official Monitor: Cluster Merging & Rebalancing ─────────
+cluster_merge:
+  min_cluster_size: 2       # clusters smaller than this are candidates for merge
+  min_merge_sim: 0.22       # min similarity to merge a small cluster into a large one
+  min_topics: 2             # split clusters when total topics < this
+  max_topics: 4             # merge clusters when total topics > this
+
+# ── Official Monitor: Signal Gate ───────────────────────────
+signal_gate:
+  content_scan_chars: 1600  # how many chars of content_text to scan
+
+# ── Official Monitor: Pipeline ──────────────────────────────
+pipeline:
+  default_lookback_days: 7
+  default_max_articles_per_source: 35
+  listing_urls_limit: 6
+  supporting_articles_per_topic: 4
+
+# ── Official Monitor: Importance Score (extract.py) ─────────
+importance:
+  base_score: 35.0
+  per_tag_bonus: 8.0
+  signal_type_bonus: 10.0   # for product_release / investment_signal
+  max_score: 100.0
+  min_content_length: 220   # min chars to accept article content
+  min_title_length: 8
+
+# ── Paper Digest: Early Quality Score ───────────────────────
+quality_score:
+  weights:
+    author_historical: 30
+    reproducibility: 25
+    community_response: 20
+    experimental_strength: 15
+    novelty: 10
+  tiers:
+    A: 85
+    B: 70
+    C: 50
+  confidence_penalties:
+    missing_author_data: -0.15
+    no_github_repo: -0.15
+    no_platform_links: -0.10
+    no_fulltext: -0.10
+    min_confidence: 0.30
+  reproducibility:
+    repo_present: 8
+    instructions: 4
+    pretrained_weights: 5
+    dataset_eval: 4
+    license: 2
+    env_files: 2
+  community:
+    github_stars:
+      - [1000, 12]
+      - [300, 9]
+      - [100, 6]
+      - [30, 3]
+      - [1, 1]
+    github_forks:
+      - [100, 4]
+      - [30, 3]
+      - [10, 2]
+      - [1, 1]
+    papers_with_code: 2
+    huggingface: 2
+  experimental:
+    strong_baselines: 4
+    ablation: 3
+    multi_task: 3
+    efficiency: 2
+    limitations: 1
+    benchmarks: 2
+  novelty:
+    problem_clarity: [3, 1]       # [has, missing]
+    contribution_specificity: [3, 1]
+    difference_from_prior: [2, 1]
+    frontier_relevance: [2, 1]
+
+# ── Paper Digest: Social Signal Scoring ─────────────────────
+social_scoring:
+  github:
+    base: 2.0
+    readme_bonus: 4.0
+    core_code_bonus: 4.0
+    description_bonus: 0.5
+    base_cap: 10.0
+    velocity_coeff: 5.5       # star velocity = min(15, coeff * log1p(events))
+    velocity_cap: 15.0
+    engagement_coeff: 3.8     # deep engagement = min(15, coeff * log1p(signal))
+    engagement_eff: 0.65      # issue effectiveness multiplier
+    engagement_cap: 15.0
+    total_cap: 40.0
+  x_twitter:
+    kol_weights:
+      ylecun: 2.0
+      karpathy: 2.0
+      goodfellow_ian: 2.0
+      demishassabis: 1.8
+      andrewng: 1.8
+      sama: 1.6
+      gdb: 1.5
+    verified_bonus: 1.35
+    kol_coeff: 1.8
+    kol_fallback_coeff: 5.0
+    interaction_coeff: 1.9
+    interaction_fallback_coeff: 3.0
+    cap: 15.0
+    total_cap: 30.0
+    search_limit: 30
+  reddit:
+    subreddit_weights:
+      machinelearning: 2.0
+      localllama: 1.8
+      robotics: 1.8
+      mlscaling: 1.7
+      singularity: 1.6
+      artificial: 1.4
+      technology: 1.0
+    vertical_coeff: 2.8
+    vertical_cap: 10.0
+    depth_coeff: 2.2
+    upvote_coeff: 1.4
+    depth_cap: 20.0
+    total_cap: 30.0
+  combined_cap: 100.0
+
+# ── Paper Digest: Topical Scoring ───────────────────────────
+topical_scoring:
+  infra_hit_multiplier: 4
+  physical_hit_multiplier: 4
+  focus_hit_multiplier: 3
+  irrelevant_penalty: -3
+  excluded_penalty: -4
+  missing_hit_penalty: -8
+
+# ── Paper Digest: Ranking ───────────────────────────────────
+ranking:
+  citation_coeff: 2.5
+  abstract_length_divisor: 1200.0
+  abstract_length_cap: 1.5
+  method_cue_weight: 0.4
+  result_cue_weight: 0.4
+  interface_weight: 0.5
+  impact_divisor: 8.0
+  impact_cap: 2.0
+
+# ── LLM Settings ────────────────────────────────────────────
+llm:
+  temperature: 0.1
+  max_tokens: 65536
+
+# ── Data Source Query Limits ────────────────────────────────
+data_sources:
+  arxiv_max_results: 120
+  crossref_rows: 30
+  openalex_per_page: 25
+  semantic_scholar_limit: 25
+
+# ── Timeouts (seconds) ──────────────────────────────────────
+timeouts:
+  api_general: 30
+  github_reddit: 15
+  pdf_download: 60
+  html_fetch: 20
+
+# ── PDF Handling ────────────────────────────────────────────
+pdf:
+  max_retries: 3
+  max_chars: 60000
+  min_file_size: 1024
+  inter_download_delay: 3    # seconds between consecutive PDF downloads

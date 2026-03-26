@@ -68,6 +68,11 @@ INFRA_STRICT_KEYWORDS = [
     "lakehouse for autonomy", "data labeling for perception", "data governance for robotics",
     "physical ai data", "具身智能数据", "机器人数据管道", "自动驾驶数据管道", "感知数据治理",
     "仿真到现实数据", "遥操作数据", "轨迹数据集", "策略数据集", "车队数据引擎",
+    # Data-centric approaches for embodied/physical AI
+    "data scaling law for robot", "robot data flywheel", "demonstration collection",
+    "cross-embodiment data", "open x-embodiment", "droid dataset", "bridge dataset",
+    "data augmentation for manipulation", "embodied data generation", "synthetic data for robot",
+    "数据驱动具身", "机器人数据增强", "跨实体数据", "合成数据用于机器人",
 ]
 
 IRRELEVANT_HINT_KEYWORDS = [
@@ -99,6 +104,8 @@ CORE_WORLD_ANCHORS = [
 CORE_INFRA_ANCHORS = [
     "data infrastructure", "data infra", "data pipeline", "data ingestion", "data lakehouse", "feature store",
     "stream processing", "batch processing", "etl", "data orchestration", "数据基础设施", "数据管道", "湖仓",
+    "robot data", "embodied data", "perception data", "sim2real data", "trajectory data",
+    "机器人数据", "具身数据", "感知数据", "仿真数据", "轨迹数据",
 ]
 
 PHYSICAL_AI_MUST_HAVE = [
@@ -109,6 +116,13 @@ PHYSICAL_AI_MUST_HAVE = [
 DATA_INFRA_MUST_HAVE = [
     "data infra", "data infrastructure", "data pipeline", "data ingestion", "feature store", "lakehouse",
     "dataset", "data engine", "数据基础设施", "数据管道", "数据引擎", "数据集", "湖仓",
+    # Physical AI / embodied data problems
+    "robot dataset", "embodied dataset", "perception dataset", "manipulation dataset",
+    "navigation dataset", "driving dataset", "sim2real dataset", "policy data",
+    "trajectory data", "teleoperation data", "demonstration data", "sensor data",
+    "data curation for robot", "data scaling for embodied", "data flywheel",
+    "机器人数据集", "具身数据集", "感知数据集", "操作数据集", "导航数据集",
+    "驾驶数据集", "策略数据", "轨迹数据", "遥操作数据", "演示数据", "数据飞轮",
 ]
 
 PHYSICAL_AI_CONTEXT_KEYWORDS = [
@@ -1410,7 +1424,47 @@ def has_readable_fulltext(fulltext_context: str) -> bool:
     return len((fulltext_context or "").strip()) >= min_chars
 
 
+def _build_social_buzz_context(paper: Paper) -> str:
+    """Build a human-readable summary of why this paper is getting attention."""
+    details = getattr(paper, "_social_details", None)
+    if not details:
+        return ""
+    parts = []
+    gh = details.get("github") or {}
+    gh_total = float(gh.get("github_total", 0))
+    if gh_total > 5:
+        stars = gh.get("stargazers_count") or gh.get("stars_count") or gh.get("stars", 0)
+        forks = gh.get("forks_count") or gh.get("forks", 0)
+        if stars:
+            parts.append(f"GitHub 项目已获 {stars} stars" + (f", {forks} forks" if forks else ""))
+        elif gh_total > 10:
+            parts.append("在 GitHub 上受到开发者社区关注")
+
+    x = details.get("x") or {}
+    x_total = float(x.get("x_total", 0))
+    kol_names = [str(n) for n in (x.get("kol_names") or x.get("kol_list") or []) if n]
+    if kol_names:
+        parts.append(f"被 {', '.join(kol_names[:3])} 等业内大佬在 X 上转发讨论")
+    elif x_total > 5:
+        parts.append("在 X (Twitter) 上引发技术社区讨论")
+
+    rd = details.get("reddit") or {}
+    rd_total = float(rd.get("reddit_total", 0))
+    subreddits = [str(s) for s in (rd.get("subreddits") or rd.get("top_subreddits") or []) if s]
+    if subreddits:
+        parts.append(f"在 Reddit r/{subreddits[0]} 等社区被热议")
+    elif rd_total > 5:
+        parts.append("在 Reddit 机器学习社区获得关注")
+
+    return "；".join(parts) if parts else ""
+
+
 def build_prompt(paper: Paper, category: str, fulltext_context: str) -> str:
+    social_buzz = _build_social_buzz_context(paper)
+    social_hint = ""
+    if social_buzz:
+        social_hint = f"\n        社区反响参考（仅供撰写「为什么值得关注」时参考）：{social_buzz}"
+
     return textwrap.dedent(
         f"""
         你是一位资深科技行业分析师，正在为科技公司高管撰写前沿技术研究简报。
@@ -1433,7 +1487,8 @@ def build_prompt(paper: Paper, category: str, fulltext_context: str) -> str:
         5) 每段先给结论，再用一句话补关键证据。如果原文缺失某项信息，写「原文未披露」。
         6) 每一行必须是完整句，不能半句收尾。
 
-        严格输出以下五行，不要输出其它字段：
+        严格输出以下六行，不要输出其它字段：
+        为什么值得关注：<用1-2句话，用轻松但有说服力的语气告诉读者这篇为什么重要——可以提到它在GitHub上多受欢迎、被哪些业内知名人物转发讨论、在Reddit社区引发了什么样的讨论，让读者感受到「这篇是真的有人在意」。如果没有明显的社区热度，就从技术突破的角度说明其重要性>
         问题与背景：<用2-3句话讲清楚这个技术要解决什么现实问题，现有方案有什么不足，让非专业人士也能理解>
         核心方法与创新：<用2-3句话用通俗语言解释技术思路，遇到专业概念必须括号注释，重点讲「做了什么」而非罗列技术名词>
         关键结论：<用2-3句话讲效果，数据要给出直观对比和解读，不要只列数字不解释含义>
@@ -1443,7 +1498,7 @@ def build_prompt(paper: Paper, category: str, fulltext_context: str) -> str:
         论文标题：{paper.title}
         分类：{category}
         作者：{", ".join(paper.authors[:10]) if paper.authors else "未披露"}
-        摘要：{paper.abstract[:3000] if paper.abstract else "未披露"}
+        摘要：{paper.abstract[:3000] if paper.abstract else "未披露"}{social_hint}
 
         以下是正文提取片段（若为空表示仅抓到摘要）：
         {fulltext_context[:30000] if fulltext_context else "未抓取到正文"}
@@ -1474,6 +1529,7 @@ def clean_symbols(text: str) -> str:
 
 def parse_structured_analysis(text: str) -> Dict[str, str]:
     keys = [
+        "为什么值得关注",
         "问题与背景",
         "核心方法与创新",
         "关键结论",
@@ -1481,6 +1537,9 @@ def parse_structured_analysis(text: str) -> Dict[str, str]:
         "局限与开放问题",
     ]
     aliases = {
+        "为什么值得关注": "为什么值得关注",
+        "为何值得关注": "为什么值得关注",
+        "关注理由": "为什么值得关注",
         "问题与背景": "问题与背景",
         "论文想解决什么问题、该问题为什么重要": "问题与背景",
         "问题与重要性": "问题与背景",
@@ -1579,6 +1638,7 @@ def render_paper_block(index: int, item: AnalyzedPaper, parsed: Dict[str, str], 
         f"发布时间：{published_bj}（北京时间）",
         f"链接：{paper.url}",
         f"作者：{format_author_orgs(paper)}",
+        f"为什么值得关注：{parsed['为什么值得关注']}",
         f"问题与背景：{parsed['问题与背景']}",
         f"核心方法与创新：{parsed['核心方法与创新']}",
         f"关键结论：{parsed['关键结论']}",
@@ -1593,6 +1653,7 @@ def fallback_structured_analysis(paper: Paper, category: str, reason: str = "") 
     no_data_msg = "本条未能抓取到稳定正文，以下结论基于题目与摘要，需后续复核。"
     reason_text = f"（{reason}）" if reason else ""
     return {
+        "为什么值得关注": f"该工作属于'{category}'方向，具备行业跟踪价值。",
         "问题与背景": short_abstract or f"{no_data_msg}{reason_text}",
         "核心方法与创新": "正文抓取受限，方法细节暂无法完整还原，建议后续二次精读原文。",
         "关键结论": "正文抓取受限，暂无法给出高置信结论。",
@@ -1831,6 +1892,77 @@ def to_html(report_text: str) -> str:
 """.strip()
 
 
+def _export_paper_quality_checkpoint(papers: List[Paper]) -> None:
+    """Export all fetched papers to Excel with score breakdowns, sorted by final score.
+
+    This serves as a quality checkpoint: every paper within the time window
+    is listed with its topical / social / quality scores so reviewers can
+    verify the ranking logic and spot any anomalies.
+    """
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    except ImportError:
+        print("[QC] openpyxl not installed, skipping paper quality checkpoint export")
+        return
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Paper Quality Checkpoint"
+
+    headers = [
+        "排名", "标题", "作者", "原文链接",
+        "主题相关分", "社交热度分", "质量评估分", "综合排序分",
+    ]
+    hdr_font = Font(bold=True, size=11, color="FFFFFF")
+    hdr_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
+    hdr_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    thin_border = Border(bottom=Side(style="thin", color="D1D5DB"))
+
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = hdr_font
+        cell.fill = hdr_fill
+        cell.alignment = hdr_align
+
+    scored_papers = []
+    for p in papers:
+        t_score = topical_score(p.title, p.abstract)
+        s_score = float(getattr(p, "_social_score", 0.0))
+        r_score = ranking_score(p)
+        scored_papers.append((p, t_score, s_score, r_score))
+
+    scored_papers.sort(key=lambda x: x[3], reverse=True)
+
+    for idx, (p, t_sc, s_sc, r_sc) in enumerate(scored_papers, 2):
+        ws.cell(row=idx, column=1, value=idx - 1)
+        ws.cell(row=idx, column=2, value=p.title or "")
+        ws.cell(row=idx, column=3, value=", ".join(p.authors[:5]) if p.authors else "")
+        ws.cell(row=idx, column=4, value=p.url or "")
+        ws.cell(row=idx, column=5, value=t_sc)
+        ws.cell(row=idx, column=6, value=round(s_sc, 1))
+        ws.cell(row=idx, column=7, value=round(r_sc, 2))
+        ws.cell(row=idx, column=8, value=round(r_sc, 2))
+        for col in range(1, len(headers) + 1):
+            ws.cell(row=idx, column=col).border = thin_border
+            ws.cell(row=idx, column=col).alignment = Alignment(vertical="center", wrap_text=True)
+
+    ws.column_dimensions["A"].width = 6
+    ws.column_dimensions["B"].width = 60
+    ws.column_dimensions["C"].width = 40
+    ws.column_dimensions["D"].width = 50
+    ws.column_dimensions["E"].width = 14
+    ws.column_dimensions["F"].width = 14
+    ws.column_dimensions["G"].width = 14
+    ws.column_dimensions["H"].width = 14
+    ws.auto_filter.ref = ws.dimensions
+
+    dest = PAPERS_DIR / "paper_quality_checkpoint.xlsx"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(dest)
+    print(f"[QC] paper quality checkpoint exported: {dest} ({len(scored_papers)} papers)")
+
+
 def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
     papers, _ = collect_recent_papers()
 
@@ -1845,6 +1977,9 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
         )
         cleaned = clean_symbols(text)
         return cleaned, to_html(cleaned)
+
+    # ── Export all papers to Excel as quality checkpoint ──
+    _export_paper_quality_checkpoint(papers)
 
     candidate_pool = diversify_sources(
         sorted(papers, key=ranking_score, reverse=True),

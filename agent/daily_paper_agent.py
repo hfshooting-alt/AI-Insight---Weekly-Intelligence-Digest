@@ -1433,8 +1433,8 @@ def _build_social_buzz_context(paper: Paper) -> str:
     gh = details.get("github") or {}
     gh_total = float(gh.get("github_total", 0))
     if gh_total > 5:
-        stars = gh.get("stars_count") or gh.get("stargazers_count", 0)
-        forks = gh.get("forks_count", 0)
+        stars = gh.get("stargazers_count") or gh.get("stars_count") or gh.get("stars", 0)
+        forks = gh.get("forks_count") or gh.get("forks", 0)
         if stars:
             parts.append(f"GitHub 项目已获 {stars} stars" + (f", {forks} forks" if forks else ""))
         elif gh_total > 10:
@@ -1442,7 +1442,7 @@ def _build_social_buzz_context(paper: Paper) -> str:
 
     x = details.get("x") or {}
     x_total = float(x.get("x_total", 0))
-    kol_names = x.get("kol_names") or x.get("kol_list") or []
+    kol_names = [str(n) for n in (x.get("kol_names") or x.get("kol_list") or []) if n]
     if kol_names:
         parts.append(f"被 {', '.join(kol_names[:3])} 等业内大佬在 X 上转发讨论")
     elif x_total > 5:
@@ -1450,7 +1450,7 @@ def _build_social_buzz_context(paper: Paper) -> str:
 
     rd = details.get("reddit") or {}
     rd_total = float(rd.get("reddit_total", 0))
-    subreddits = rd.get("subreddits") or rd.get("top_subreddits") or []
+    subreddits = [str(s) for s in (rd.get("subreddits") or rd.get("top_subreddits") or []) if s]
     if subreddits:
         parts.append(f"在 Reddit r/{subreddits[0]} 等社区被热议")
     elif rd_total > 5:

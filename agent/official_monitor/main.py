@@ -18,9 +18,9 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.sample:
-        summary, articles, clusters = sample_run_data()
+        summary, articles, clusters, *_ = sample_run_data()
     else:
-        summary, articles, clusters = run_pipeline(lookback_days=args.lookback_days)
+        summary, articles, clusters, *_ = run_pipeline(lookback_days=args.lookback_days)
 
     out_json = render_json(summary, articles, clusters)
     out_md = render_markdown(summary, clusters)

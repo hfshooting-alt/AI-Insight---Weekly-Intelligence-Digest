@@ -40,23 +40,6 @@ def _log(event: str, **kwargs) -> None:
 
 
 
-CORE_SIGNAL_TYPES = {"product_release", "investment_signal", "partnership", "m&a"}
-
-STRONG_SIGNAL_KEYWORDS = [
-    "launch", "launched", "release", "released", "announce", "announced",
-    "general availability", "ga", "debut", "unveil", "introduce", "rollout",
-    "funding", "fundraise", "investment", "invest", "financing", "raised",
-    "acquisition", "acquire", "merger", "m&a", "strategic partnership",
-    "发布", "上线", "推出", "开源", "融资", "投资", "领投", "并购", "收购", "合作",
-]
-
-LOW_SIGNAL_KEYWORDS = [
-    "weekly", "daily", "monthly", "newsletter", "roundup", "recap", "digest",
-    "week in review", "highlights", "highlights of the week", "editorial", "sponsored",
-    "观点", "观察", "周报", "日报", "月报", "简报", "合集", "精选", "回顾", "快讯", "速递", "专栏", "软文",
-]
-
-
 def _passes_signal_gate(article: NormalizedArticle) -> bool:
     """Lightweight gate: only reject obvious noise (maintenance, changelogs, career pages).
 
@@ -75,104 +58,6 @@ def _passes_signal_gate(article: NormalizedArticle) -> bool:
 
 
 
-
-AI_COMPANY_MUST = [
-    "launch", "release", "announce", "debut", "rollout", "ga", "general availability", "new model", "foundation model", "api", "core feature",
-    "发布", "上线", "推出", "开源", "发布会", "升级", "新版本", "新模型", "核心功能", "模型",
-]
-AI_COMPANY_PR_NOISE = [
-    "using", "how to", "how we", "customer story", "case study", "best practices", "tutorial", "webinar", "spotlight",
-    "hospital automation", "industry stories", "customer success", "opinion", "roadmap talk",
-    "simulation", "use case", "guide", "overview", "future of", "the state of", "what is", "why we",
-    "building with", "build with", "getting started", "deep dive", "behind the scenes", "lessons learned",
-    "research paper", "whitepaper", "white paper", "survey", "benchmark", "evaluation",
-    "观点", "观察", "实践分享", "案例", "教程", "直播", "活动回顾", "周报", "月报",
-    "仿真", "应用案例", "行业洞察", "展望", "前景", "趋势分析", "白皮书", "研究报告", "技术解读", "深度解析",
-    "场景", "落地实践", "解决方案概述", "生态报告",
-]
-INVESTMENT_BIG_EVENT = [
-    "funding", "financing", "investment", "invested", "acquisition", "merger", "portfolio", "appoint", "joins as", "ceo", "cfo", "partner",
-    "融资", "投资", "领投", "并购", "收购", "被投", "投后", "任命", "加入担任", "合伙人", "ceo", "cfo", "cto",
-]
-
-
-INVESTMENT_NOISE = [
-    "weekly", "monthly", "roundup", "opinion", "viewpoint", "forecast", "interview", "podcast", "newsletter",
-    "vol.", "vol", "report", "insight", "outlook", "未来", "观点", "周报", "月报", "简报", "访谈", "播客", "分享", "观察", "趋势",
-]
-
-INVESTMENT_HARD_SIGNALS = [
-    "led", "co-led", "participated", "raised", "closed", "final close", "new fund", "appointed", "joined", "departed",
-    "领投", "参投", "完成融资", "完成募资", "新基金", "最终关账", "任命", "加入", "离职", "卸任",
-]
-
-
-
-INVESTMENT_AWARD_NOISE = [
-    "award", "awards", "honor", "honour", "top 50", "top50", "ranking", "list", "women in", "best investor",
-    "荣誉", "获奖", "榜单", "上榜", "入选", "评选", "年度", "女性投资人", "top50", "top 100",
-]
-
-INVESTMENT_TITLE_HARD_SIGNALS = [
-    "领投", "参投", "完成融资", "完成募资", "新基金", "并购", "收购", "任命", "加入", "离职", "卸任",
-    "led", "co-led", "participated", "raised", "closed", "new fund", "acquisition", "acquire", "appointed", "joined", "departed",
-]
-
-STRICT_EXCLUDE = [
-    "bug fix", "bugfix", "patch release", "minor update", "known issues", "changelog", "maintenance",
-    "fireside chat", "panel", "rumor", "leak", "unconfirmed", "speculation",
-    "修复", "补丁", "已知问题", "维护更新", "论坛", "圆桌", "传闻", "爆料", "未经证实", "猜测",
-]
-
-# Keywords that are excluded ONLY when the title lacks any hard announcement signal.
-# "keynote" and "vision" often appear alongside real product launches (e.g. GTC keynotes).
-SOFT_EXCLUDE = [
-    "keynote", "vision", "愿景", "演讲",
-]
-
-# Title patterns that strongly indicate a soft/thought-leadership article rather than a hard announcement.
-# These are checked as regex against the title (case-insensitive).
-SOFT_ARTICLE_TITLE_PATTERNS = [
-    r"^using\b",              # "Using X to build Y"
-    r"^how\s+to\b",           # "How to deploy ..."
-    r"^how\s+\w+\s+is\b",     # "How AI is transforming ..."
-    r"^building\b",           # "Building X for Y"
-    r"^what\s+is\b",          # "What is RAG?"
-    r"^why\b",                # "Why enterprises need ..."
-    r"^the\s+future\s+of\b",  # "The Future of AI"
-    r"^the\s+state\s+of\b",   # "The State of AI 2025"
-    r"^guide\b",              # "Guide to ..."
-    r"\btutorial\b",
-    r"\bintroduction\s+to\b",
-    r"\bgetting\s+started\b",
-    r"\bbest\s+practices\b",
-    r"\blessons\s+learned\b",
-    r"\bbehind\s+the\s+scenes\b",
-    r"\bdeep\s+dive\b",
-    r"\bexplained\b",
-    r"\bdemystif",
-    r"\b仿真\b",
-    r"\b应用案例\b",
-    r"\b技术解读\b",
-    r"\b深度解析\b",
-    r"\b行业展望\b",
-    r"\b趋势\b",
-    r"\b白皮书\b",
-]
-
-# Title keywords that confirm a HARD announcement (product launch / M&A / core feature).
-AI_COMPANY_TITLE_MUST = [
-    "launch", "launches", "launched", "release", "releases", "released",
-    "announce", "announces", "announced", "unveil", "unveils",
-    "introduce", "introduces", "introducing",
-    "generally available", "general availability", "ga",
-    "debut", "debuts", "open source", "open-source", "opens",
-    "acquire", "acquires", "acquired", "acquisition",
-    "partner", "partners", "partnership",
-    "发布", "上线", "推出", "开源", "正式发布", "全面开放",
-    "收购", "并购", "合作", "战略合作",
-    "新模型", "新版本", "新功能",
-]
 
 FUNDING_AMOUNT_PATTERNS = [
     r"\$\s?([0-9]+(?:\.[0-9]+)?)\s?([mb]illion|[mk]?)",

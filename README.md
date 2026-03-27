@@ -16,7 +16,7 @@ daily_paper_agent.py (主入口)
 │   └── 输出：Top 3 论文解读 + PDF 原文 + 质量检查 Excel
 │
 └── Part 2: Official Monitor — AI 行业信号图谱
-    ├── 数据采集：30 个国际 AI 大厂 & VC 官方博客
+    ├── 数据采集：45 个国际 AI 大厂 & VC 官方通道（含 engineering/research 页面）
     ├── 筛选：轻量噪声过滤（保留播客/深度分析/研究/产品发布等）
     ├── 聚类：Token 相似度聚类 → 合并/再平衡 → LLM 主题生成
     ├── 自反思：LLM 回顾筛选质量，输出遗漏/误选/建议
@@ -125,9 +125,31 @@ AGENT_MODE=schedule REPORT_TIME=10:00 TZ=Asia/Shanghai python daily_paper_agent.
 
 ## Part 2: Official Monitor — AI 行业信号图谱
 
-### 监控源（30 个国际源）
+### 监控源（45 个通道，覆盖 30+ 机构）
 
-**AI 大厂（20）**：OpenAI, Anthropic, DeepMind, Meta AI, xAI, Microsoft Research, NVIDIA, AWS AI, Google Cloud AI, Apple ML, Mistral, Cohere, Stability AI, Hugging Face, Together AI, Scale AI, Databricks, Inflection AI, Character AI, Runway
+**AI 大厂 — News/Blog + Engineering/Research 双通道**：
+
+| 机构 | Blog / News | Engineering / Research |
+|------|------------|----------------------|
+| OpenAI | openai.com/news, developers.openai.com/blog | — (via news) |
+| Anthropic | anthropic.com/news | anthropic.com/engineering, anthropic.com/research |
+| Google DeepMind | deepmind.google/blog | deepmind.google/research |
+| Meta AI | ai.meta.com/blog | — (research via blog) |
+| xAI | x.ai/news | — |
+| Microsoft | news.microsoft.com/topics/ai | microsoft.com/research/blog |
+| NVIDIA | blogs.nvidia.com, developer.nvidia.com/blog | nvidia.com/research |
+| AWS | aws.amazon.com/blogs/machine-learning | — |
+| Google Cloud | cloud.google.com/blog/ai-machine-learning | — |
+| Apple | — | machinelearning.apple.com |
+| Mistral | mistral.ai/news | — |
+| Cohere | cohere.com/blog | cohere.com/research |
+| Stability AI | stability.ai/news | stability.ai/research |
+| Hugging Face | huggingface.co/blog | — |
+| Together AI | together.ai/blog | together.ai/research |
+| Scale AI | scale.com/blog | labs.scale.com/papers |
+| Databricks | databricks.com/blog | — |
+| Replit | blog.replit.com | — |
+| AMD | amd.com/newsroom | — |
 
 **投资机构（10）**：a16z, Sequoia Capital, Accel, Greylock, Index Ventures, Bessemer, General Catalyst, Menlo Ventures, Atomico, Sapphire Ventures
 
@@ -260,7 +282,7 @@ agent/
 │   └── scoring.yaml              # 100+ 可调参数
 └── official_monitor/
     ├── pipeline.py               # 核心流水线：采集→筛选→聚类→反思
-    ├── sources.py                # 30 个监控源注册表
+    ├── sources.py                # 45 个监控通道注册表
     ├── models.py                 # 数据模型（NormalizedArticle, TopicCluster 等）
     ├── cluster.py                # Token 相似度聚类
     ├── extract.py                # 文章结构化提取

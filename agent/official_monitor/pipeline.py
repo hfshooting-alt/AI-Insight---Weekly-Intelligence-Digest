@@ -7,6 +7,7 @@ import re
 from collections import defaultdict, Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Tuple
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,36 @@ from config import cfg
 def _log(event: str, **kwargs) -> None:
     payload = {"event": event, **kwargs}
     print(json.dumps(payload, ensure_ascii=False))
+
+
+def _infer_pub_date_from_url(url: str) -> dt.datetime | None:
+    """Best-effort publication date extraction from URL path.
+
+    Supports common patterns like:
+    - /2026/03/20/...
+    - /2026-03-20-...
+    """
+    if not url:
+        return None
+    try:
+        path = (urlparse(url).path or "").strip("/")
+    except Exception:
+        path = url
+    if not path:
+        return None
+
+    # /YYYY/MM/DD/
+    m = re.search(r"(20\d{2})/([01]?\d)/([0-3]?\d)", path)
+    if not m:
+        # YYYY-MM-DD or YYYY_MM_DD
+        m = re.search(r"(20\d{2})[-_\.]([01]?\d)[-_\.]([0-3]?\d)", path)
+    if not m:
+        return None
+    try:
+        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        return dt.datetime(y, mo, d, tzinfo=dt.timezone.utc)
+    except Exception:
+        return None
 
 
 
@@ -294,7 +325,27 @@ def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> T
             _log("listing_parsed", source=s.source_name, listing=lu, candidate_links=len(links))
 
         uniq_candidates = list(dict.fromkeys(source_candidates))[: max_articles_per_source]
+        stale_streak = 0
+        early_stop_enabled = bool(cfg("pipeline.early_stop_on_stale", True))
+        stale_streak_limit = int(cfg("pipeline.stale_streak_limit", 10))
+        scan_limit = int(cfg("pipeline.scan_limit_per_source", max_articles_per_source))
+        scanned = 0
         for u in uniq_candidates:
+            if scanned >= scan_limit:
+                local_drops["scan_limit_reached"] += 1
+                break
+            scanned += 1
+
+            # Fast-path: if URL already encodes a stale date, skip fetching body.
+            hinted_dt = _infer_pub_date_from_url(u)
+            if hinted_dt and not within_last_days(hinted_dt, lookback_days):
+                local_drops["outside_window_url_hint"] += 1
+                stale_streak += 1
+                if early_stop_enabled and stale_streak >= stale_streak_limit:
+                    local_drops["early_stopped_stale_streak"] += 1
+                    break
+                continue
+
             html = fetch_url(u)
             if not html:
                 local_drops["empty_or_inaccessible"] += 1
@@ -306,7 +357,12 @@ def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> T
             pub_dt = dt.datetime.fromisoformat(art.published_at.replace("Z", "+00:00"))
             if not within_last_days(pub_dt, lookback_days):
                 local_drops["outside_7d_window"] += 1
+                stale_streak += 1
+                if early_stop_enabled and stale_streak >= stale_streak_limit:
+                    local_drops["early_stopped_stale_streak"] += 1
+                    break
                 continue
+            stale_streak = 0
             if not art.content_text:
                 local_drops["empty_content"] += 1
                 continue

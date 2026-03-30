@@ -2196,7 +2196,7 @@ def run_once() -> None:
         html_digest = html_digest.replace("<!-- WEEKLY_SIGNALS_SLOT -->", "", 1)
     date_str = now_beijing().strftime("%Y-%m-%d")
     send_email(
-        subject=f"[{date_str}] World Engine 与 Data Infra 每周论文简报",
+        subject=f"[{date_str}] AI Insight - Weekly Intelligence Digest",
         text_body=text_digest,
         html_body=html_digest,
     )

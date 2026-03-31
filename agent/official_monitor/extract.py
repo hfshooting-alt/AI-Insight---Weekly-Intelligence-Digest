@@ -19,6 +19,19 @@ GENERIC_TITLES = {
     "team & enterprise plans", "developer tools",
 }
 
+BAD_TITLE_PATTERNS = [
+    "signup", "sign up", "register", "login", "work with us", "careers", "jobs",
+    "comments for source", "technical information portal", "console", "portal",
+    "loading", "browser compatibility", "javascript required",
+    "注册", "登录", "招聘", "岗位", "评论", "加载中", "兼容性",
+]
+
+BAD_CONTENT_HINTS = [
+    "enable javascript", "browser compatibility", "loading", "sign up", "login",
+    "privacy policy", "terms of use", "cookie settings", "this page requires",
+    "请开启javascript", "浏览器兼容", "正在加载", "注册账号", "登录后",
+]
+
 
 def _looks_like_listing_page(url: str, title_norm: str, raw_html: str) -> bool:
     p = urlparse(url)
@@ -142,6 +155,8 @@ def extract_article(article_html: str, url: str, source: SourceConfig, idx: int)
 
     plain = _strip_html(article_html)
     title_norm = re.sub(r"\s+", " ", title.lower()).strip()
+    if any(p in title_norm for p in BAD_TITLE_PATTERNS):
+        return None
     if _looks_like_listing_page(url, title_norm, article_html):
         return None
     published = _date(article_html, plain)
@@ -155,6 +170,9 @@ def extract_article(article_html: str, url: str, source: SourceConfig, idx: int)
     # title + meta description are still valuable for clustering / summarisation.
     if len(content_text) < 80:
         return None
+    low = content_text.lower()
+    if any(h in low[:5000] for h in BAD_CONTENT_HINTS):
+        return None
 
     author = _meta_content(article_html, "author", "name") or "未披露"
     canonical = _canonicalize(url)
@@ -167,7 +185,6 @@ def extract_article(article_html: str, url: str, source: SourceConfig, idx: int)
             tags.append(kw)
 
     signal_type = "research_update"
-    low = content_text.lower()
     if any(k in low for k in ["launch", "release", "announce", "发布"]):
         signal_type = "product_release"
     if any(k in low for k in ["funding", "investment", "financing", "融资"]):

@@ -15,7 +15,7 @@ from .cluster import build_topic_meta, cluster_articles
 from .dates import now_utc, within_last_days
 from .dedupe import dedupe_articles
 from .discover import discover_article_links, discover_listing_urls
-from .extract import extract_article
+from .extract import extract_article, extract_rss_articles
 from .fetch import fetch_url
 from .models import NormalizedArticle, RunSummary, TopicCluster
 from .render import source_link_markdown
@@ -309,6 +309,10 @@ def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> T
     article_idx = 1
     covered_sources = 0
 
+    def _is_rss_content(text: str) -> bool:
+        head = text.lstrip()[:500]
+        return head.startswith("<?xml") or "<rss" in head or "<feed" in head
+
     def _fetch_one_source(s):
         """Fetch all articles from a single source. Returns (articles, local_drop_reasons)."""
         local_drops = defaultdict(int)
@@ -316,14 +320,33 @@ def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> T
         _log("source_fetch_start", source=s.source_name, landing=s.landing_url)
         listing_urls = discover_listing_urls(s)
         source_candidates = []
+        rss_articles = []
+
         for lu in listing_urls[:cfg("pipeline.listing_urls_limit", 6)]:
             html = fetch_url(lu)
             if not html:
                 continue
-            links = discover_article_links(html, lu, s)
-            source_candidates.extend(links)
-            _log("listing_parsed", source=s.source_name, listing=lu, candidate_links=len(links))
+            # If the listing page is RSS/Atom, extract articles directly from the
+            # feed XML — this avoids 403 errors when individual article pages
+            # block automated fetching (e.g. OpenAI, xAI).
+            if _is_rss_content(html):
+                rss_arts = extract_rss_articles(html, s)
+                rss_articles.extend(rss_arts)
+                _log("rss_feed_parsed", source=s.source_name, listing=lu, articles=len(rss_arts))
+            else:
+                links = discover_article_links(html, lu, s)
+                source_candidates.extend(links)
+                _log("listing_parsed", source=s.source_name, listing=lu, candidate_links=len(links))
 
+        # Process RSS-extracted articles (already parsed, just need date filtering)
+        for art in rss_articles[:max_articles_per_source]:
+            pub_dt = dt.datetime.fromisoformat(art.published_at.replace("Z", "+00:00"))
+            if not within_last_days(pub_dt, lookback_days):
+                local_drops["outside_7d_window"] += 1
+                continue
+            local_articles.append(art)
+
+        # Process HTML-discovered candidates (fetch each article page)
         uniq_candidates = list(dict.fromkeys(source_candidates))[: max_articles_per_source]
         stale_streak = 0
         early_stop_enabled = bool(cfg("pipeline.early_stop_on_stale", True))
@@ -367,7 +390,7 @@ def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> T
                 local_drops["empty_content"] += 1
                 continue
             local_articles.append(art)
-        _log("source_fetch_end", source=s.source_name, kept=len(local_articles), candidates=len(uniq_candidates))
+        _log("source_fetch_end", source=s.source_name, kept=len(local_articles), candidates=len(uniq_candidates) + len(rss_articles))
         return local_articles, local_drops
 
     with ThreadPoolExecutor(max_workers=8) as pool:

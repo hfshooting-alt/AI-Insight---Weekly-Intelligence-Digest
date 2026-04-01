@@ -3,9 +3,11 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import os
 import re
+import time
 from collections import defaultdict, Counter
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
 from typing import Dict, List, Tuple
 from urllib.parse import urlparse
 
@@ -301,7 +303,7 @@ def _rebalance_cluster_count(clusters: List[List[NormalizedArticle]], min_topics
     return [sorted(c, key=lambda x: x.importance_score, reverse=True) for c in clusters if c]
 
 
-def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> Tuple[RunSummary, List[NormalizedArticle], List[TopicCluster], List[NormalizedArticle], dict | None]:
+def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 20) -> Tuple[RunSummary, List[NormalizedArticle], List[TopicCluster], List[NormalizedArticle], dict | None]:
     started = now_utc()
     sources = load_sources()
     drop_reasons = defaultdict(int)
@@ -322,7 +324,7 @@ def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> T
         source_candidates = []
         rss_articles = []
 
-        for lu in listing_urls[:cfg("pipeline.listing_urls_limit", 6)]:
+        for lu in listing_urls[:cfg("pipeline.listing_urls_limit", 3)]:
             html = fetch_url(lu)
             if not html:
                 continue
@@ -334,9 +336,9 @@ def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> T
                 rss_articles.extend(rss_arts)
                 _log("rss_feed_parsed", source=s.source_name, listing=lu, articles=len(rss_arts))
             else:
-                links = discover_article_links(html, lu, s)
-                source_candidates.extend(links)
-                _log("listing_parsed", source=s.source_name, listing=lu, candidate_links=len(links))
+                links_with_dates = discover_article_links(html, lu, s, lookback_days=lookback_days)
+                source_candidates.extend(links_with_dates)
+                _log("listing_parsed", source=s.source_name, listing=lu, candidate_links=len(links_with_dates))
 
         # Process RSS-extracted articles (already parsed, just need date filtering)
         for art in rss_articles[:max_articles_per_source]:
@@ -346,54 +348,55 @@ def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> T
                 continue
             local_articles.append(art)
 
-        # Process HTML-discovered candidates (fetch each article page)
-        uniq_candidates = list(dict.fromkeys(source_candidates))[: max_articles_per_source]
-        stale_streak = 0
-        early_stop_enabled = bool(cfg("pipeline.early_stop_on_stale", True))
-        stale_streak_limit = int(cfg("pipeline.stale_streak_limit", 10))
-        scan_limit = int(cfg("pipeline.scan_limit_per_source", max_articles_per_source))
-        scanned = 0
-        for u in uniq_candidates:
-            if scanned >= scan_limit:
-                local_drops["scan_limit_reached"] += 1
-                break
-            scanned += 1
-
-            # Fast-path: if URL already encodes a stale date, skip fetching body.
-            hinted_dt = _infer_pub_date_from_url(u)
-            if hinted_dt and not within_last_days(hinted_dt, lookback_days):
-                local_drops["outside_window_url_hint"] += 1
-                stale_streak += 1
-                if early_stop_enabled and stale_streak >= stale_streak_limit:
-                    local_drops["early_stopped_stale_streak"] += 1
-                    break
+        # Pre-filter candidates using date hints from the listing page.
+        # This avoids fetching article pages that are clearly outside the time window.
+        filtered_candidates = []
+        seen_urls = set()
+        for url, hint_date in source_candidates:
+            if url in seen_urls:
                 continue
+            seen_urls.add(url)
+            if hint_date and not within_last_days(hint_date, lookback_days):
+                local_drops["skipped_by_date_hint"] += 1
+                continue
+            filtered_candidates.append(url)
 
+        uniq_candidates = filtered_candidates[:max_articles_per_source]
+        _log("date_prefilter", source=s.source_name,
+             before=len(source_candidates), after=len(uniq_candidates))
+
+        # Fetch article pages concurrently
+        def _try_extract(u):
             html = fetch_url(u)
             if not html:
-                local_drops["empty_or_inaccessible"] += 1
-                continue
-            art = extract_article(html, u, s, 0)  # idx assigned later
+                return None, "empty_or_inaccessible"
+            art = extract_article(html, u, s, 0)
             if not art:
-                local_drops["not_real_article_or_bad_parse"] += 1
-                continue
+                return None, "not_real_article_or_bad_parse"
             pub_dt = dt.datetime.fromisoformat(art.published_at.replace("Z", "+00:00"))
             if not within_last_days(pub_dt, lookback_days):
-                local_drops["outside_7d_window"] += 1
-                stale_streak += 1
-                if early_stop_enabled and stale_streak >= stale_streak_limit:
-                    local_drops["early_stopped_stale_streak"] += 1
-                    break
-                continue
-            stale_streak = 0
+                return None, "outside_7d_window"
             if not art.content_text:
-                local_drops["empty_content"] += 1
-                continue
-            local_articles.append(art)
+                return None, "empty_content"
+            return art, None
+
+        with ThreadPoolExecutor(max_workers=6) as article_pool:
+            futs = {article_pool.submit(_try_extract, u): u for u in uniq_candidates}
+            for f in as_completed(futs):
+                try:
+                    art, reason = f.result()
+                except Exception:
+                    local_drops["fetch_exception"] += 1
+                    continue
+                if art:
+                    local_articles.append(art)
+                elif reason:
+                    local_drops[reason] += 1
+
         _log("source_fetch_end", source=s.source_name, kept=len(local_articles), candidates=len(uniq_candidates) + len(rss_articles))
         return local_articles, local_drops
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=12) as pool:
         futures = {pool.submit(_fetch_one_source, s): s for s in sources}
         for fut in as_completed(futures):
             try:
@@ -418,16 +421,28 @@ def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> T
     import pathlib as _pathlib
     _excel_output_dir = _pathlib.Path(_os.environ.get("PAPERS_DIR", "papers"))
 
-    # Step-2: traverse all deduped news and output structured paragraph first.
+    # Step-2: traverse all deduped news, generate structured summary and
+    #         LLM relevance verdict in a single call.
+    llm_verdicts: Dict[str, bool] = {}  # article_id -> keep
     for a in deduped:
-        a.article_summary_zh = summarize_article_with_llm(a) or summarize_article_zh(a)
+        llm_result = summarize_article_with_llm(a)
+        if llm_result is not None:
+            summary_text, keep = llm_result
+            a.article_summary_zh = summary_text
+            llm_verdicts[a.article_id] = keep
+        else:
+            a.article_summary_zh = summarize_article_zh(a)
         if not (a.summary or "").strip():
             a.summary = _build_precluster_summary(a)
         a.related_entities = infer_entities(a)
 
-    # Step-3: strict cleaning on structured paragraphs.
+    # Step-3: strict cleaning — LLM verdict + rule-based gates.
     cleaned: List[NormalizedArticle] = []
     for a in deduped:
+        # LLM relevance filter (flexible, prompt-driven)
+        if not llm_verdicts.get(a.article_id, True):
+            drop_reasons["llm_verdict_skip"] += 1
+            continue
         if not _passes_signal_gate(a):
             drop_reasons["low_signal_content"] += 1
             continue
@@ -480,6 +495,9 @@ def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> T
             # Already generated in Step-2; keep deterministic fallback only.
             a.article_summary_zh = a.article_summary_zh or summarize_article_zh(a)
             link = source_link_markdown(a.company_or_firm_name, a.url)
+            # Include a content excerpt so the report can show original text,
+            # not just a URL.  Keep it reasonable (~800 chars) for rendering.
+            content_excerpt = (a.content_text or "")[:800].strip()
             supporting.append(
                 {
                     "article_id": a.article_id,
@@ -487,6 +505,7 @@ def run_pipeline(lookback_days: int = 7, max_articles_per_source: int = 35) -> T
                     "institution_name": a.company_or_firm_name,
                     "published_at": a.published_at,
                     "article_summary_zh": a.article_summary_zh,
+                    "content_excerpt": content_excerpt,
                     "source_link_markdown": link,
                     "url": a.url,
                 }

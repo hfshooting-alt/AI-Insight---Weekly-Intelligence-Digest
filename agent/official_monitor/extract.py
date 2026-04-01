@@ -16,42 +16,71 @@ GENERIC_TITLES = {
     "machine learning", "generative ai", "ai and machine learning", "latest news",
     "models", "datasets", "documentation", "storage", "pricing", "solutions",
     "partners", "customer stories", "case studies", "enterprise",
-    "team & enterprise plans", "developer tools",
+    "team & enterprise plans", "developer tools", "products", "research",
+    "welcome", "home", "sign in", "sign up", "console", "signup",
+    "work with us", "join us", "contact us",
 }
 
-BAD_TITLE_PATTERNS = [
-    "signup", "sign up", "register", "login", "work with us", "careers", "jobs",
-    "comments for source", "technical information portal", "console", "portal",
-    "loading", "browser compatibility", "javascript required",
-    "注册", "登录", "招聘", "岗位", "评论", "加载中", "兼容性",
+# Titles that indicate junk pages even after stripping site name suffix
+_JUNK_TITLE_PATTERNS = [
+    r"^comments\s+for\b",          # RSS comment feeds
+    r"^feed\b",                     # RSS feed pages
+    r"^tag:",                       # Tag pages
+    r"\btechnical information portal\b",
+    r"\baccessibility\s+statement\b",
+    r"\bcookie\s+(policy|consent)\b",
+    r"\bprivacy\s+(policy|notice)\b",
+    r"\bterms\s+(of\s+)?(use|service)\b",
+    r"^(subscribe|unsubscribe)\b",
+    r"^(login|sign\s*in|sign\s*up|register)\b",
+    r"^(careers|jobs|hiring|work with us|join)\b",
+    r"^(pricing|plans)\b",
+    r"^(console|dashboard)\b",
 ]
 
-BAD_CONTENT_HINTS = [
-    "enable javascript", "browser compatibility", "loading", "sign up", "login",
-    "privacy policy", "terms of use", "cookie settings", "this page requires",
-    "请开启javascript", "浏览器兼容", "正在加载", "注册账号", "登录后",
-]
 
-
-def _looks_like_listing_page(url: str, title_norm: str, raw_html: str) -> bool:
+def _looks_like_non_article(url: str, title_norm: str, raw_html: str) -> bool:
+    """Return True if the page is clearly NOT a real article."""
     p = urlparse(url)
     path = (p.path or "").lower().rstrip("/")
     segs = [s for s in path.split("/") if s]
-    # Strip common site name suffixes: "Title | Company", "Title – Company", "Title - Company"
+
+    # Strip common site name suffixes: "Title | Company", "Title – Company"
     clean_title = re.split(r'\s*[|–—\-]\s*', title_norm)[0].strip()
-    if clean_title in GENERIC_TITLES:
+
+    # Generic / navigation page titles
+    if clean_title in GENERIC_TITLES or title_norm in GENERIC_TITLES:
         return True
-    if title_norm in GENERIC_TITLES:
+    if len(clean_title.split()) <= 3 and any(k in clean_title for k in [
+        "artificial intelligence", "machine learning", "news", "blog",
+        "insights", "models", "datasets", "documentation",
+    ]):
         return True
-    if len(clean_title.split()) <= 3 and any(k in clean_title for k in ["artificial intelligence", "machine learning", "news", "blog", "insights", "models", "datasets", "documentation"]):
+
+    # Junk title patterns
+    for pat in _JUNK_TITLE_PATTERNS:
+        if re.search(pat, clean_title, flags=re.I):
+            return True
+
+    # URL ends with a generic listing segment
+    if segs and segs[-1] in {"news", "blog", "insights", "resources", "topics",
+                              "categories", "tags", "feed", "comments"}:
         return True
-    # Only check the LAST segment — intermediate segments like /blog/ are fine
-    if segs and segs[-1] in {"news", "blog", "insights", "resources", "topics", "categories", "tags"}:
+
+    # URL is an RSS/Atom feed endpoint
+    low_url = url.lower()
+    if any(k in low_url for k in ["/feed/", "/feed", "/rss", "xmlrpc.php", "/comments/"]):
         return True
-    # Modern article pages easily have 80-120 nav/footer links.
-    # True listing pages (index of 20+ articles) have 200+ anchors.
+
+    # Page content is actually RSS/Atom XML (not HTML)
+    head = raw_html.lstrip()[:300]
+    if head.startswith("<?xml") or "<rss" in head or "<feed" in head:
+        return True
+
+    # Too many anchors → listing/index page
     if len(re.findall(r"<a[^>]+href=", raw_html, flags=re.I)) > 250:
         return True
+
     return False
 
 
@@ -155,9 +184,7 @@ def extract_article(article_html: str, url: str, source: SourceConfig, idx: int)
 
     plain = _strip_html(article_html)
     title_norm = re.sub(r"\s+", " ", title.lower()).strip()
-    if any(p in title_norm for p in BAD_TITLE_PATTERNS):
-        return None
-    if _looks_like_listing_page(url, title_norm, article_html):
+    if _looks_like_non_article(url, title_norm, article_html):
         return None
     published = _date(article_html, plain)
     if not published:

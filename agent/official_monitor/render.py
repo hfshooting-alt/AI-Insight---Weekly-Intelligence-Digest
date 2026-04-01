@@ -103,10 +103,21 @@ def _insight_block(label: str, content: str, tone: str = "normal") -> str:
 def _article_card(item: Dict[str, Any]) -> str:
     title = str(item.get("title", "未命名文章"))
     summary = str(item.get("article_summary_zh", ""))
+    content_excerpt = str(item.get("content_excerpt", "")).strip()
     institution = str(item.get("institution_name", "未披露"))
     published = str(item.get("published_at", "未披露"))
     source_markdown = str(item.get("source_link_markdown", ""))
     url = str(item.get("url", ""))
+
+    # Show original content excerpt when available
+    excerpt_block = ""
+    if content_excerpt:
+        excerpt_block = (
+            "<details class='content-excerpt'>"
+            "<summary style='cursor:pointer;font-size:13px;color:#4B5563;font-weight:600;margin-top:8px'>展开原文摘录</summary>"
+            f"<p style='font-size:13px;line-height:1.7;color:#374151;margin:6px 0 0;white-space:pre-line'>{escape(content_excerpt)}</p>"
+            "</details>"
+        )
 
     return f"""
     <article class='event-card'>
@@ -119,6 +130,7 @@ def _article_card(item: Dict[str, Any]) -> str:
       </header>
       <div class='event-body'>
         {_insight_block('摘要', summary)}
+        {excerpt_block}
       </div>
       <footer class='event-footer'>
         <span class='label'>来源</span>
@@ -178,6 +190,11 @@ def render_markdown(run_summary: RunSummary, clusters: List[TopicCluster]) -> st
         for a in c.supporting_articles:
             lines.append(f"- **{a['title']}**")
             lines.append(f"  - **摘要：** {a['article_summary_zh']}")
+            excerpt = (a.get('content_excerpt') or '').strip()
+            if excerpt:
+                # Show first ~200 chars of original text
+                short = excerpt[:200] + ("..." if len(excerpt) > 200 else "")
+                lines.append(f"  - **原文摘录：** {short}")
             lines.append(f"  - **来源：** {a['source_link_markdown']}")
             lines.append("")
     return "\n".join(lines).strip() + "\n"
@@ -273,6 +290,11 @@ def render_html_fragment(run_summary: RunSummary, clusters: List[TopicCluster]) 
     for i, c in enumerate(selected):
         article_cards = []
         for a in pick_supporting_articles(c.supporting_articles, limit=per_theme_quota.get(i, 1)):
+            excerpt_html = ""
+            content_excerpt = (a.get('content_excerpt') or '').strip()
+            if content_excerpt:
+                short = escape(content_excerpt[:300])
+                excerpt_html = f"<div style='font-size:13px;line-height:1.65;color:#374151;margin-bottom:8px;padding:8px 10px;background:#F9FAFB;border-radius:6px;border-left:3px solid #D1D5DB'>{short}{'...' if len(content_excerpt) > 300 else ''}</div>"
             article_cards.append(
                 f"""
                 <tr><td style='padding:0 0 10px 0'>
@@ -280,6 +302,7 @@ def render_html_fragment(run_summary: RunSummary, clusters: List[TopicCluster]) 
                     <tr><td style='padding:14px 14px 12px'>
                       <div style='font-size:19px;line-height:1.45;font-weight:700;color:#111827;margin-bottom:6px'>{escape(a.get('title',''))}</div>
                       <div style='font-size:16px;line-height:1.7;color:#111827;margin-bottom:8px'>{format_summary_lines(a.get('article_summary_zh',''))}</div>
+                      {excerpt_html}
                       <div style='font-size:13px;line-height:1.6;color:#4B5563'>来源：<a href='{escape(a.get('url',''))}' style='color:#2563EB;text-decoration:none'>@{escape(a.get('institution_name','官方来源'))}（原文链接）</a></div>
                     </td></tr>
                   </table>

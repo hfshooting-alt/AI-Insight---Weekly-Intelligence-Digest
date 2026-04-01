@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import datetime as dt
 import re
+from typing import List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
 
+from .dates import parse_date_any, within_last_days
 from .models import SourceConfig
 
 # URL path segments / extensions that are definitely NOT articles.
@@ -21,6 +24,9 @@ _NON_ARTICLE_PATTERNS = [
     "/solutions", "/partners", "/customers",
     "/customer-stories", "/case-studies",
     "/storage", "/enterprise",
+    # RSS/feed/API endpoints (not article pages)
+    "/feed/", "/feed", "/rss", "xmlrpc.php", "/comments/",
+    "/wp-json/", "/wp-admin/", "/wp-login",
     # Legal / policy
     "/privacy", "/terms", "/cookie", "/legal", "/sitemap",
     "/acceptable-use", "/dmca", "/compliance",
@@ -96,7 +102,54 @@ def _extract_rss_links(xml_text: str, listing_url: str, source: SourceConfig) ->
     return links
 
 
-def discover_article_links(listing_html: str, listing_url: str, source: SourceConfig) -> list[str]:
+def _url_year_too_old(url: str, lookback_days: int = 60) -> bool:
+    """If the URL contains a year (e.g. /2023/05/article), reject if clearly too old."""
+    m = re.search(r'/(20\d{2})/(\d{1,2})/', url)
+    if m:
+        try:
+            url_year, url_month = int(m.group(1)), int(m.group(2))
+            url_date = dt.datetime(url_year, url_month, 1, tzinfo=dt.timezone.utc)
+            now = dt.datetime.now(dt.timezone.utc)
+            if (now - url_date).days > lookback_days:
+                return True
+        except ValueError:
+            pass
+    return False
+
+
+def _extract_nearby_date(html: str, href_pos: int) -> Optional[dt.datetime]:
+    """Try to find a date string near the link in the listing HTML."""
+    # Look at the 300 chars surrounding the href position
+    start = max(0, href_pos - 200)
+    end = min(len(html), href_pos + 200)
+    snippet = html[start:end]
+    # Common date patterns in listing pages
+    for pat in [
+        r'(20\d{2}[-/]\d{1,2}[-/]\d{1,2})',
+        r'<time[^>]*datetime=["\']([^"\']+)["\']',
+        r'((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{1,2},?\s+20\d{2})',
+        r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+20\d{2})',
+    ]:
+        m = re.search(pat, snippet, flags=re.I)
+        if m:
+            d = parse_date_any(m.group(1))
+            if d:
+                return d
+    return None
+
+
+def discover_article_links(
+    listing_html: str,
+    listing_url: str,
+    source: SourceConfig,
+    lookback_days: int = 14,
+) -> List[Tuple[str, Optional[dt.datetime]]]:
+    """Discover article links, returning (url, hint_date) tuples.
+
+    hint_date is extracted from the listing page HTML context near the link,
+    allowing the caller to skip articles outside the time window WITHOUT
+    fetching each article page.
+    """
     # Detect RSS/Atom feed content and use specialized parser.
     head = listing_html.lstrip()[:500]
     is_feed = (
@@ -105,15 +158,13 @@ def discover_article_links(listing_html: str, listing_url: str, source: SourceCo
         or "<feed" in head
     )
     if is_feed:
-        return _extract_rss_links(listing_html, listing_url, source)[:200]
+        rss_links = _extract_rss_links(listing_html, listing_url, source)
+        return [(url, None) for url in rss_links[:200]]
 
     links = []
     seen = set()
-    reject_tokens = [
-        "/comments", "/comment/", "/feed", "/rss", "/signup", "/sign-up", "/register", "/login",
-        "/console", "/portal", "/community", "/forum", "/docs", "/documentation", "/download",
-    ]
-    for href in re.findall(r'href=["\']([^"\']+)["\']', listing_html, flags=re.I):
+    for m in re.finditer(r'href=["\']([^"\']+)["\']', listing_html, flags=re.I):
+        href = m.group(1)
         full = urljoin(listing_url, href.strip())
         if not full.startswith("http"):
             continue
@@ -124,9 +175,13 @@ def discover_article_links(listing_html: str, listing_url: str, source: SourceCo
             continue
         if not any(k in low for k in ["/news", "/blog", "/research", "/article", "/insights", "/press", "/stories", "/posts"]):
             continue
+        # Skip URLs with year/month in path that are clearly too old
+        if _url_year_too_old(full, lookback_days=lookback_days + 30):
+            continue
         # Deduplicate ignoring trailing slash and fragment
         norm = full.split("#")[0].rstrip("/")
         if norm not in seen:
             seen.add(norm)
-            links.append(full)
+            hint_date = _extract_nearby_date(listing_html, m.start())
+            links.append((full, hint_date))
     return links[:200]

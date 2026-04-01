@@ -15,17 +15,20 @@ DEFAULT_HEADERS = {
 }
 
 
-def fetch_url(url: str, timeout: int = 20, retries: int = 2) -> Optional[str]:
+def fetch_url(url: str, timeout: int = 12, retries: int = 1) -> Optional[str]:
     for i in range(retries + 1):
         try:
             r = requests.get(url, timeout=timeout, headers=DEFAULT_HEADERS)
             if r.status_code == 200 and r.text:
                 return r.text
             logger.debug("fetch_url %s returned status %d", url, r.status_code)
+            # Don't retry on 403/404 — these won't succeed on retry
+            if r.status_code in (403, 404, 410, 451):
+                return None
         except Exception as exc:
             logger.debug("fetch_url %s attempt %d failed: %s", url, i + 1, exc)
         if i < retries:
-            time.sleep(0.6 * (i + 1))
+            time.sleep(0.5)
     return None
 
 

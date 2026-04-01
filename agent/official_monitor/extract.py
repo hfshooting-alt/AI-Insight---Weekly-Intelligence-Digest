@@ -197,6 +197,9 @@ def extract_article(article_html: str, url: str, source: SourceConfig, idx: int)
     # title + meta description are still valuable for clustering / summarisation.
     if len(content_text) < 80:
         return None
+    low = content_text.lower()
+    if any(h in low[:5000] for h in BAD_CONTENT_HINTS):
+        return None
 
     author = _meta_content(article_html, "author", "name") or "未披露"
     canonical = _canonicalize(url)
@@ -209,7 +212,6 @@ def extract_article(article_html: str, url: str, source: SourceConfig, idx: int)
             tags.append(kw)
 
     signal_type = "research_update"
-    low = content_text.lower()
     if any(k in low for k in ["launch", "release", "announce", "发布"]):
         signal_type = "product_release"
     if any(k in low for k in ["funding", "investment", "financing", "融资"]):

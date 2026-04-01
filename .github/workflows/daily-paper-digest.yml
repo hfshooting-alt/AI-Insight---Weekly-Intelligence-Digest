@@ -18,6 +18,8 @@ jobs:
       SMTP_PASS: ${{ secrets.SMTP_PASS }}
       AGENT_MODE: once
       TZ: Asia/Shanghai
+      OFFICIAL_MONITOR_MAX_PER_SOURCE: "16"
+      OFFICIAL_MONITOR_LOOKBACK_DAYS: "7"
     steps:
       - name: Checkout
         uses: actions/checkout@v5

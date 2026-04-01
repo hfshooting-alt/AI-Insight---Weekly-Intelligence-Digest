@@ -9,6 +9,7 @@ import time
 from collections import defaultdict, Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
 from typing import Dict, List, Tuple
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,36 @@ from config import cfg
 def _log(event: str, **kwargs) -> None:
     payload = {"event": event, **kwargs}
     print(json.dumps(payload, ensure_ascii=False))
+
+
+def _infer_pub_date_from_url(url: str) -> dt.datetime | None:
+    """Best-effort publication date extraction from URL path.
+
+    Supports common patterns like:
+    - /2026/03/20/...
+    - /2026-03-20-...
+    """
+    if not url:
+        return None
+    try:
+        path = (urlparse(url).path or "").strip("/")
+    except Exception:
+        path = url
+    if not path:
+        return None
+
+    # /YYYY/MM/DD/
+    m = re.search(r"(20\d{2})/([01]?\d)/([0-3]?\d)", path)
+    if not m:
+        # YYYY-MM-DD or YYYY_MM_DD
+        m = re.search(r"(20\d{2})[-_\.]([01]?\d)[-_\.]([0-3]?\d)", path)
+    if not m:
+        return None
+    try:
+        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        return dt.datetime(y, mo, d, tzinfo=dt.timezone.utc)
+    except Exception:
+        return None
 
 
 

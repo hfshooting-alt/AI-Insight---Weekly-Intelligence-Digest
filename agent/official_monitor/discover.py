@@ -170,9 +170,10 @@ def discover_article_links(
             continue
         if not _is_allowed(full, source) or _is_excluded(full, source):
             continue
-        if _is_non_article(full):
+        low = full.lower()
+        if any(tok in low for tok in reject_tokens):
             continue
-        if not _has_enough_path(full):
+        if not any(k in low for k in ["/news", "/blog", "/research", "/article", "/insights", "/press", "/stories", "/posts"]):
             continue
         # Skip URLs with year/month in path that are clearly too old
         if _url_year_too_old(full, lookback_days=lookback_days + 30):

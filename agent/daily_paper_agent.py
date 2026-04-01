@@ -602,8 +602,9 @@ def dedup_rank(papers: Iterable[Paper]) -> List[Paper]:
         ):
             dedup[key] = p
 
+    min_keep = max(3, int(os.environ.get("MIN_PAPER_CANDIDATES", "10")))
     strict_filtered = [p for p in dedup.values() if is_domain_relevant(p.title, p.abstract)]
-    if len(strict_filtered) >= 3:
+    if len(strict_filtered) >= min_keep:
         strict_filtered.sort(key=lambda x: (topical_score(x.title, x.abstract), x.published), reverse=True)
         return strict_filtered
 
@@ -611,15 +612,14 @@ def dedup_rank(papers: Iterable[Paper]) -> List[Paper]:
     if soft_filtered:
         print(f"[WARN] strict domain filter kept {len(strict_filtered)} papers; relaxed fallback kept {len(soft_filtered)}")
         soft_filtered.sort(key=lambda x: (topical_score(x.title, x.abstract), x.published), reverse=True)
-        if len(soft_filtered) >= 3:
+        if len(soft_filtered) >= min_keep:
             return soft_filtered
 
-    # final fallback: keep strongly topical papers while still removing clearly irrelevant ones
+    # final fallback: keep topical papers while still removing clearly irrelevant ones
     fallback = [
         p for p in dedup.values()
-        if is_domain_relevant_soft(p.title, p.abstract)
-        and topical_score(p.title, p.abstract) > 0
-        and is_physical_ai_data_infra_focus(f"{p.title} {p.abstract}")
+        if topical_score(p.title, p.abstract) > 0
+        and not any(normalize(kw) in normalize(f"{p.title} {p.abstract}") for kw in EXCLUDED_NON_TECH_KEYWORDS)
     ]
     fallback.sort(key=lambda x: (topical_score(x.title, x.abstract), x.published), reverse=True)
     if fallback:
@@ -1680,7 +1680,7 @@ def build_overview_lines(items: List[AnalyzedPaper]) -> List[str]:
             "总体判断：本周未检索到符合条件的论文。",
         ]
 
-    top3 = sorted(items, key=lambda x: (x.discussion_score, x.early_score), reverse=True)[:3]
+    top3 = sorted(items, key=lambda x: ranking_score(x.paper), reverse=True)[:3]
     trend_pool = " ".join([normalize(f"{x.paper.title} {x.paper.abstract}") for x in items])
 
     trend_lines: List[str] = []
@@ -1765,6 +1765,7 @@ def to_html(report_text: str) -> str:
                 "published": "",
                 "author": "",
                 "link": "",
+                "attention": "",
                 "problem": "",
                 "method": "",
                 "conclusion": "",
@@ -1779,6 +1780,7 @@ def to_html(report_text: str) -> str:
                 "published": "",
                 "author": "",
                 "link": "",
+                "attention": "",
                 "problem": "",
                 "method": "",
                 "conclusion": "",
@@ -1791,6 +1793,8 @@ def to_html(report_text: str) -> str:
             current["author"] = ln.split("：", 1)[1].strip()
         elif current and ln.startswith("链接："):
             current["link"] = ln.split("：", 1)[1].strip()
+        elif current and ln.startswith("为什么值得关注："):
+            current["attention"] = ln.split("：", 1)[1].strip()
         elif current and ln.startswith("问题与背景："):
             current["problem"] = ln.split("：", 1)[1].strip()
         elif current and ln.startswith("核心方法与创新："):
@@ -1818,6 +1822,10 @@ def to_html(report_text: str) -> str:
                   <div style='font-size:19px;line-height:1.45;font-weight:700;color:#111827;margin-bottom:8px'>{html.escape(p.get('title',''))}</div>
                   <div style='font-size:13px;color:#6B7280;line-height:1.7;margin-bottom:12px'>作者：{html.escape(compact_author_line(p.get('author','')))} ｜ {link_html}</div>
 
+                  <div style='background:#EFF6FF;border:1px solid #BFDBFE;border-radius:12px;padding:12px 14px;margin-bottom:10px'>
+                    <div style='font-size:14px;font-weight:700;color:#1D4ED8;margin-bottom:6px'>为什么值得关注</div>
+                    <div style='font-size:15px;line-height:1.7;color:#111827'>{pretty_text(p.get('attention',''))}</div>
+                  </div>
                   <div style='background:#F8FAFC;border:1px solid #E5E7EB;border-radius:12px;padding:12px 14px;margin-bottom:10px'>
                     <div style='font-size:14px;font-weight:700;color:#2563EB;margin-bottom:6px'>问题与背景</div>
                     <div style='font-size:15px;line-height:1.7;color:#111827'>{pretty_text(p.get('problem',''))}</div>
@@ -1929,19 +1937,32 @@ def _export_paper_quality_checkpoint(papers: List[Paper]) -> None:
     for p in papers:
         t_score = topical_score(p.title, p.abstract)
         s_score = float(getattr(p, "_social_score", 0.0))
+        if s_score <= 0:
+            try:
+                s_score, details = compute_social_discussion_score(p)
+                setattr(p, "_social_score", float(s_score))
+                setattr(p, "_social_details", details)
+            except Exception:
+                s_score = 0.0
+        q_score = 0
+        try:
+            q = compute_early_quality_score(p, classify_paper(p), (p.abstract or "").strip())
+            q_score = int(((q.get("scores") or {}).get("total_score") or 0))
+        except Exception:
+            q_score = 0
         r_score = ranking_score(p)
-        scored_papers.append((p, t_score, s_score, r_score))
+        scored_papers.append((p, t_score, s_score, q_score, r_score))
 
-    scored_papers.sort(key=lambda x: x[3], reverse=True)
+    scored_papers.sort(key=lambda x: x[4], reverse=True)
 
-    for idx, (p, t_sc, s_sc, r_sc) in enumerate(scored_papers, 2):
+    for idx, (p, t_sc, s_sc, q_sc, r_sc) in enumerate(scored_papers, 2):
         ws.cell(row=idx, column=1, value=idx - 1)
         ws.cell(row=idx, column=2, value=p.title or "")
         ws.cell(row=idx, column=3, value=", ".join(p.authors[:5]) if p.authors else "")
         ws.cell(row=idx, column=4, value=p.url or "")
         ws.cell(row=idx, column=5, value=t_sc)
         ws.cell(row=idx, column=6, value=round(s_sc, 1))
-        ws.cell(row=idx, column=7, value=round(r_sc, 2))
+        ws.cell(row=idx, column=7, value=q_sc)
         ws.cell(row=idx, column=8, value=round(r_sc, 2))
         for col in range(1, len(headers) + 1):
             ws.cell(row=idx, column=col).border = thin_border
@@ -1978,24 +1999,22 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
         cleaned = clean_symbols(text)
         return cleaned, to_html(cleaned)
 
-    # ── Export all papers to Excel as quality checkpoint ──
+    # ── Export candidate papers to Excel with full score breakdowns first ──
     _export_paper_quality_checkpoint(papers)
 
-    candidate_pool = diversify_sources(
-        sorted(papers, key=ranking_score, reverse=True),
-        int(os.environ.get("MAX_PAPERS", "18")),
-    )
-    selected = pick_top_discussed_papers(candidate_pool, limit=3)
-    if len(selected) < 3:
-        selected_titles = {p.title for p in selected}
-        for p in candidate_pool:
-            if p.title in selected_titles:
-                continue
-            selected.append(p)
-            selected_titles.add(p.title)
-            if len(selected) >= 3:
-                break
-    selected = selected[:3]
+    # Top-3 MUST follow the final composite score used in Excel ("综合排序分")
+    # i.e. ranking_score descending on the same candidate paper set.
+    candidate_pool = sorted(papers, key=ranking_score, reverse=True)
+    selected = candidate_pool[:3]
+    for p in selected:
+        # Ensure social context exists for the "为什么值得关注" section.
+        if not getattr(p, "_social_details", None):
+            try:
+                social_score, details = compute_social_discussion_score(p)
+                setattr(p, "_social_score", social_score)
+                setattr(p, "_social_details", details)
+            except Exception:
+                pass
 
     analyzed: List[AnalyzedPaper] = []
     parsed_map: Dict[str, Dict[str, str]] = {}
@@ -2053,7 +2072,7 @@ def build_daily_digest(client: OpenAI) -> Tuple[str, str]:
         return cleaned, to_html(cleaned)
 
 
-    analyzed.sort(key=lambda x: (x.discussion_score, x.early_score), reverse=True)
+    analyzed.sort(key=lambda x: ranking_score(x.paper), reverse=True)
     rank_map = {it.paper.title: i + 1 for i, it in enumerate(analyzed)}
 
     start, end = target_beijing_date_window()
@@ -2177,7 +2196,7 @@ def run_once() -> None:
         html_digest = html_digest.replace("<!-- WEEKLY_SIGNALS_SLOT -->", "", 1)
     date_str = now_beijing().strftime("%Y-%m-%d")
     send_email(
-        subject=f"[{date_str}] World Engine 与 Data Infra 每周论文简报",
+        subject=f"[{date_str}] AI Insight - Weekly Intelligence Digest",
         text_body=text_digest,
         html_body=html_digest,
     )

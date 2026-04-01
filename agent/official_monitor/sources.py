@@ -91,4 +91,17 @@ def load_sources() -> list[SourceConfig]:
         except json.JSONDecodeError:
             pass
 
+    # Global exclusions to avoid non-article/company pages leaking into results.
+    global_excludes = [
+        "/careers", "/career", "/jobs", "/job/", "/hiring", "/work-with-us",
+        "/team", "/people", "/about", "/contact", "/support", "/legal", "/privacy",
+        "/events", "/webinar", "/podcast", "/tag/", "/category/",
+    ]
+    for item in registry:
+        merged = list(item.get("exclude_url_patterns") or [])
+        for pat in global_excludes:
+            if pat not in merged:
+                merged.append(pat)
+        item["exclude_url_patterns"] = merged
+
     return [SourceConfig(**item) for item in registry]
